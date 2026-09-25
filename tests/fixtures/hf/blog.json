@@ -1,0 +1,434 @@
+{
+ "allBlogs": [
+  {
+   "_id": "6ab52ef92c8debdc16323573",
+   "isUpvotedByUser": false,
+   "numCoauthors": 3,
+   "publishedAt": "2026-09-24T14:08:57.587Z",
+   "editedAt": "2026-09-24T14:08:57.586Z",
+   "slug": "lfm2-5-vl-dspark",
+   "title": "Accelerating vision-language models with LFM2.5-VL-DSpark",
+   "upvotes": 11,
+   "upvotes7d": 11,
+   "thumbnail": "https://cdn-uploads.huggingface.co/production/uploads/644249b08443bce4c9890a0f/WgfT8N8Xyb6lBxSif7XLO.gif",
+   "authorsData": [
+    {
+     "_id": "663b52dd95085055e93f29ba",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/61b8e2ba285851687028d395/EsTgVtnM2IqVRKgPdfqcB.png",
+     "fullname": "Liquid AI",
+     "name": "LiquidAI",
+     "type": "org",
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "plan": "team",
+     "followerCount": 5556,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/LiquidAI/lfm2-5-vl-dspark",
+   "apiPrefix": "/api/blog/LiquidAI/lfm2-5-vl-dspark",
+   "canonical": false,
+   "status": "published",
+   "isHFChangelog": false,
+   "orgPlan": "team"
+  },
+  {
+   "_id": "6ab3952cae2ca87ac18ac6d2",
+   "isUpvotedByUser": false,
+   "numCoauthors": 3,
+   "publishedAt": "2026-09-23T18:41:40.192Z",
+   "editedAt": "2026-09-23T18:41:40.192Z",
+   "slug": "how-to-use-nvidia-warp-and-mjwarp",
+   "title": "How to Use NVIDIA Warp and MjWarp to Accelerate Robotics Simulation and Learning Workflows",
+   "upvotes": 21,
+   "upvotes7d": 21,
+   "thumbnail": "https://cdn-uploads.huggingface.co/production/uploads/6994dc99f850a10f03fd0b21/rQ6tGCJEaH16bQQ8X4M8b.png",
+   "authorsData": [
+    {
+     "_id": "60262b67268c201cdc8b7d43",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/65df9200dc3292a8983e5017/Vs5FPVCH-VZBipV3qKTuy.png",
+     "fullname": "NVIDIA",
+     "name": "nvidia",
+     "type": "org",
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "plan": "plus",
+     "followerCount": 69357,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/nvidia/how-to-use-nvidia-warp-and-mjwarp",
+   "apiPrefix": "/api/blog/nvidia/how-to-use-nvidia-warp-and-mjwarp",
+   "canonical": false,
+   "status": "published",
+   "isHFChangelog": false,
+   "orgPlan": "plus"
+  },
+  {
+   "_id": "6ab2b45f592f1520937cf21b",
+   "isUpvotedByUser": false,
+   "numCoauthors": 8,
+   "publishedAt": "2026-09-22T00:00:00.748Z",
+   "slug": "evaleval-aisi",
+   "title": "How UK AISI and EvalEval Are Making Benchmark Results Reproducible",
+   "upvotes": 17,
+   "upvotes7d": 17,
+   "thumbnail": "/blog/assets/evaleval-aisi/thumbnail.png",
+   "authorsData": [
+    {
+     "_id": "6413251362e6057cbb6259bd",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/6413251362e6057cbb6259bd/k8UMg_tnorG_uCXidybZ7.jpeg",
+     "fullname": "Avijit Ghosh",
+     "name": "evijit",
+     "type": "user",
+     "isPro": false,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 218,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "5fc8e6e9628d967e353416b3",
+     "avatarUrl": "/avatars/d913dff9380e711aa4ecf368e3070f88.svg",
+     "fullname": "Jenny Chim",
+     "name": "j-chim",
+     "type": "user",
+     "isPro": false,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 4,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "682434234254a325ecf16a29",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/682434234254a325ecf16a29/PBoBR5WX9PA7IZqjcMOS8.png",
+     "fullname": "Deep Joshi",
+     "name": "deeplumiere",
+     "type": "user",
+     "isPro": false,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 1,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "60c7ccd1dfbd57a384a0111e",
+     "avatarUrl": "/avatars/70e55e861656a52ae535182db17d3789.svg",
+     "fullname": "Srishti",
+     "name": "srishtiy",
+     "type": "user",
+     "isPro": false,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 4,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "649f02991ac4ea8aeca47ab6",
+     "avatarUrl": "/avatars/65afd47edbbfc1bb3b40e4ee4b76061d.svg",
+     "fullname": "Matt Kennedy",
+     "name": "wmmkennedy",
+     "type": "user",
+     "isPro": false,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 4,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "62543749b777cd32720675c2",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/62543749b777cd32720675c2/EF_KRZO4hTo8TWXOtvc-n.png",
+     "fullname": "Irene Solaiman",
+     "name": "irenesolaiman",
+     "type": "user",
+     "isPro": true,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 264,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "69b1445543dc5c0336e0089c",
+     "avatarUrl": "/avatars/9d53e7997cb5f9293de94493404e85ad.svg",
+     "fullname": "Jessica McFadyen",
+     "name": "mcfadyen-aisi",
+     "type": "user",
+     "isPro": false,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 2,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "6ab16cabe89ce81c5dd15b25",
+     "avatarUrl": "/avatars/cbe7711ca2f9f0d8a28ce332d467a640.svg",
+     "fullname": "Lynn Tan",
+     "name": "lynn-aisi",
+     "type": "user",
+     "isPro": false,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 2,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "6ab25e603c660118749f8259",
+     "avatarUrl": "/avatars/62a850b2a2af162d2ad1124b2717eda7.svg",
+     "fullname": "Coz",
+     "name": "coz-aisi",
+     "type": "user",
+     "isPro": false,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 2,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/evaleval-aisi",
+   "apiPrefix": "/api/blog/evaleval-aisi",
+   "canonical": true,
+   "tags": [
+    "evaluation",
+    "research",
+    "community",
+    "open-source-collab"
+   ]
+  },
+  {
+   "_id": "6ab25a8c086fe376efffb545",
+   "isUpvotedByUser": false,
+   "numCoauthors": 2,
+   "publishedAt": "2026-09-22T00:00:00.747Z",
+   "slug": "transformers-llama-cpp-quants",
+   "title": "Transformers now runs llama.cpp quants",
+   "upvotes": 61,
+   "upvotes7d": 61,
+   "thumbnail": "/blog/assets/transformers_llama_cpp_quants/thumbnail.png",
+   "authorsData": [
+    {
+     "_id": "63ce875d199b36f7552d4f07",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/63ce875d199b36f7552d4f07/bpUrvhXDagzRqZ3vxTcSF.jpeg",
+     "fullname": "Marc Sun",
+     "name": "marcsun13",
+     "type": "user",
+     "isPro": false,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 280,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "62441cb7456803e95009a08f",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/1674683851722-62441cb7456803e95009a08f.jpeg",
+     "fullname": "Arthur Zucker",
+     "name": "ArthurZ",
+     "type": "user",
+     "isPro": true,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 659,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "5e3aec01f55e2b62848a5217",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/5e3aec01f55e2b62848a5217/PMKS0NNB4MJQlTSFzh918.jpeg",
+     "fullname": "Lysandre",
+     "name": "lysandre",
+     "type": "user",
+     "isPro": true,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 919,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/transformers-llama-cpp-quants",
+   "apiPrefix": "/api/blog/transformers-llama-cpp-quants",
+   "canonical": true,
+   "tags": [
+    "transformers",
+    "gguf",
+    "kernels",
+    "inference",
+    "local"
+   ]
+  },
+  {
+   "_id": "6ab22525c8a38c2eb6b6cee3",
+   "isUpvotedByUser": false,
+   "numCoauthors": 4,
+   "publishedAt": "2026-09-22T00:00:00.746Z",
+   "slug": "omlx",
+   "title": "Jun Kim, oMLX creator and maintainer, joins Hugging Face to support the MLX community",
+   "upvotes": 69,
+   "upvotes7d": 69,
+   "thumbnail": "/blog/assets/omlx/omlx-hf.jpg",
+   "authorsData": [
+    {
+     "_id": "603d25b75f9d390ab190b777",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/1617264212503-603d25b75f9d390ab190b777.jpeg",
+     "fullname": "Pedro Cuenca",
+     "name": "pcuenq",
+     "type": "user",
+     "isPro": true,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 1854,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "5e3aec01f55e2b62848a5217",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/5e3aec01f55e2b62848a5217/PMKS0NNB4MJQlTSFzh918.jpeg",
+     "fullname": "Lysandre",
+     "name": "lysandre",
+     "type": "user",
+     "isPro": true,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 919,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "5f17f0a0925b9863e28ad517",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/5f17f0a0925b9863e28ad517/78BR8GuQiX9a8wbbRlSAC.webp",
+     "fullname": "Victor Mustar",
+     "name": "victor",
+     "type": "user",
+     "isPro": true,
+     "isHf": true,
+     "isHfAdmin": true,
+     "isMod": false,
+     "followerCount": 6476,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "5dd96eb166059660ed1ee413",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/5dd96eb166059660ed1ee413/NQtzmrDdbG0H8qkZvRyGk.jpeg",
+     "fullname": "Julien Chaumond",
+     "name": "julien-c",
+     "type": "user",
+     "isPro": true,
+     "isHf": true,
+     "isHfAdmin": true,
+     "isMod": false,
+     "followerCount": 4951,
+     "isUserFollowing": false
+    },
+    {
+     "_id": "69be3551a9cbfb14973e3a06",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/noauth/P4AE_DXqeRdnfzXp-shec.jpeg",
+     "fullname": "Jun Kim",
+     "name": "Jundot",
+     "type": "user",
+     "isPro": false,
+     "isHf": true,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 577,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/omlx",
+   "apiPrefix": "/api/blog/omlx",
+   "canonical": true,
+   "tags": [
+    "mlx",
+    "open-source",
+    "community",
+    "llm"
+   ]
+  }
+ ],
+ "tags": [
+  {
+   "value": "community",
+   "label": "community"
+  },
+  {
+   "value": "guide",
+   "label": "guide"
+  },
+  {
+   "value": "open-source-collab",
+   "label": "open source collab"
+  },
+  {
+   "value": "partnerships",
+   "label": "partnerships"
+  },
+  {
+   "value": "research",
+   "label": "research"
+  },
+  {
+   "value": "nlp",
+   "label": "NLP"
+  },
+  {
+   "value": "audio",
+   "label": "Audio"
+  },
+  {
+   "value": "cv",
+   "label": "CV"
+  },
+  {
+   "value": "rl",
+   "label": "RL"
+  },
+  {
+   "value": "ethics",
+   "label": "ethics"
+  },
+  {
+   "value": "diffusion",
+   "label": "Diffusion"
+  },
+  {
+   "value": "game-dev",
+   "label": "Game Development"
+  },
+  {
+   "value": "rlhf",
+   "label": "RLHF"
+  },
+  {
+   "value": "leaderboard",
+   "label": "Leaderboard"
+  },
+  {
+   "value": "case-studies",
+   "label": "Case Studies"
+  },
+  {
+   "value": "lerobot",
+   "label": "LeRobot"
+  },
+  {
+   "value": "inference-providers",
+   "label": "Inference Providers"
+  }
+ ],
+ "pageIndex": 0,
+ "isPagination": true,
+ "numTotalItems": 868,
+ "numItemsPerPage": 14,
+ "lang": "en",
+ "canCreateBlog": false
+}

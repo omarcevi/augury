@@ -1,0 +1,168 @@
+{
+ "posts": [
+  {
+   "_id": "6aa1a3534e3f986f126cecba",
+   "isUpvotedByUser": false,
+   "numCoauthors": 6,
+   "publishedAt": "2026-09-23T13:17:01.139Z",
+   "editedAt": "2026-09-23T18:33:29.866Z",
+   "slug": "nemotron-diarization",
+   "title": "**Know Who Spoke When: Build Real-Time, Multi-Speaker AI with NVIDIA Nemotron 3 Diarization**",
+   "upvotes": 50,
+   "upvotes7d": 50,
+   "thumbnail": "https://cdn-uploads.huggingface.co/production/uploads/688d4bdfdeb55432d90e546d/d_xBvPVTwTB_Rt9yxmp_0.png",
+   "authorsData": [
+    {
+     "_id": "60262b67268c201cdc8b7d43",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/65df9200dc3292a8983e5017/Vs5FPVCH-VZBipV3qKTuy.png",
+     "fullname": "NVIDIA",
+     "name": "nvidia",
+     "type": "org",
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "plan": "plus",
+     "followerCount": 69357,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/nvidia/nemotron-diarization",
+   "apiPrefix": "/api/blog/nvidia/nemotron-diarization",
+   "canonical": false,
+   "status": "published",
+   "isHFChangelog": false
+  },
+  {
+   "_id": "6ab22892c8a38c2eb6b6ceee",
+   "isUpvotedByUser": false,
+   "numCoauthors": 0,
+   "publishedAt": "2026-09-22T07:04:50.135Z",
+   "editedAt": "2026-09-22T07:04:50.135Z",
+   "slug": "how-to-use-the-jev-ai-model-a-step-by-step-develop",
+   "title": "How to Use the Jev AI Model: A Step-by-Step Developer Guide",
+   "upvotes": 15,
+   "upvotes7d": 15,
+   "thumbnail": "https://cdn-uploads.huggingface.co/production/uploads/67496d13c09e4610c33950b2/rxQfgF1aDoTN2PgjY8Ujt.webp",
+   "authorsData": [
+    {
+     "_id": "67496d13c09e4610c33950b2",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/no-auth/vbyjk42eM6WaAPbgjxy7H.png",
+     "fullname": "bna",
+     "name": "sora-2",
+     "type": "user",
+     "isPro": true,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 16,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/sora-2/how-to-use-the-jev-ai-model-a-step-by-step-develop",
+   "apiPrefix": "/api/blog/sora-2/how-to-use-the-jev-ai-model-a-step-by-step-develop",
+   "canonical": false,
+   "status": "published",
+   "isHFChangelog": false
+  },
+  {
+   "_id": "6aaf986d37d205f52bbc8548",
+   "isUpvotedByUser": false,
+   "numCoauthors": 0,
+   "publishedAt": "2026-09-20T08:25:17.386Z",
+   "editedAt": "2026-09-20T08:25:17.386Z",
+   "slug": "jve-ecosystems",
+   "title": "Inside the JEV Ecosystem: 13 Answer Verifiers on One Test Set",
+   "upvotes": 12,
+   "upvotes7d": 12,
+   "thumbnail": "https://cdn-uploads.huggingface.co/production/uploads/696f2edfa0417065e6a7c3ae/N7xn8BxMNUFtfOxHklSq7.png",
+   "authorsData": [
+    {
+     "_id": "696f2edfa0417065e6a7c3ae",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/no-auth/JAcuD_km-TtlyBV6_tLGu.png",
+     "fullname": "Proto_AGI",
+     "name": "mayafree",
+     "type": "user",
+     "isPro": true,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 70,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/mayafree/jve-ecosystems",
+   "apiPrefix": "/api/blog/mayafree/jve-ecosystems",
+   "canonical": false,
+   "status": "published",
+   "isHFChangelog": false
+  },
+  {
+   "_id": "6ab00a6ee02a9fbf2559a051",
+   "isUpvotedByUser": false,
+   "numCoauthors": 0,
+   "publishedAt": "2026-09-20T16:31:42.178Z",
+   "editedAt": "2026-09-20T16:31:42.177Z",
+   "slug": "ztc",
+   "title": "Your model already knows it's wrong. Asking costs 0.06 seconds and zero tokens.",
+   "upvotes": 12,
+   "upvotes7d": 12,
+   "thumbnail": "https://cdn-uploads.huggingface.co/production/uploads/6905bc786cb49b1f11d32728/SWUMBO4D66gSK1vKm1MzO.png",
+   "authorsData": [
+    {
+     "_id": "699976ab4a856643b7429675",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/6905bc786cb49b1f11d32728/VZmuKH-liifeL2GCXlwka.jpeg",
+     "fullname": "FINAL_Bench",
+     "name": "FINAL-Bench",
+     "type": "org",
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "plan": "team",
+     "followerCount": 313,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/FINAL-Bench/ztc",
+   "apiPrefix": "/api/blog/FINAL-Bench/ztc",
+   "canonical": false,
+   "status": "published",
+   "isHFChangelog": false
+  },
+  {
+   "_id": "6ab0849f11526db53b16edc5",
+   "isUpvotedByUser": false,
+   "numCoauthors": 0,
+   "publishedAt": "2026-09-21T01:13:03.978Z",
+   "editedAt": "2026-09-23T14:22:07.442Z",
+   "slug": "what-is-jev-ai-a-practical-guide-to-system-one-and",
+   "title": "What Is Jev AI? A Practical Guide to System One and Executable Decisions",
+   "upvotes": 12,
+   "upvotes7d": 12,
+   "thumbnail": "https://cdn-uploads.huggingface.co/production/uploads/67496d13c09e4610c33950b2/8q4OeiAR4hE4EZBgpSP0Z.webp",
+   "authorsData": [
+    {
+     "_id": "67496d13c09e4610c33950b2",
+     "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/no-auth/vbyjk42eM6WaAPbgjxy7H.png",
+     "fullname": "bna",
+     "name": "sora-2",
+     "type": "user",
+     "isPro": true,
+     "isHf": false,
+     "isHfAdmin": false,
+     "isMod": false,
+     "followerCount": 16,
+     "isUserFollowing": false
+    }
+   ],
+   "url": "/blog/sora-2/what-is-jev-ai-a-practical-guide-to-system-one-and",
+   "apiPrefix": "/api/blog/sora-2/what-is-jev-ai-a-practical-guide-to-system-one-and",
+   "canonical": false,
+   "status": "published",
+   "isHFChangelog": false
+  }
+ ],
+ "numItemsPerPage": 20,
+ "numTotalItems": 3450,
+ "pageIndex": 0,
+ "sort": "trending"
+}

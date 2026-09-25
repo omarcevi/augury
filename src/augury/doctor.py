@@ -8,6 +8,7 @@ from augury.core.db.connect import vec_version
 from augury.core.db.migrate import SchemaTooNew, schema_version
 from augury.core.db.open import open_db
 from augury.core.paths import AppPaths
+from augury.sources.http import HttpClient, HttpError
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,15 @@ def check_database(paths: AppPaths) -> list[Check]:
             required=False,
         ),
     ]
+
+
+async def check_network(http: HttpClient) -> list[Check]:
+    url = "https://huggingface.co/api/daily_papers?limit=1"
+    try:
+        await http.get(url)
+    except HttpError as e:
+        return [Check("network", False, f"can't reach Hugging Face: {e}")]
+    return [Check("network", True, "huggingface.co reachable")]
 
 
 def run_checks(paths: AppPaths) -> list[Check]:

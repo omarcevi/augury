@@ -1,8 +1,12 @@
+import asyncio
+
 import click
 
 from augury import __version__
 from augury import doctor as doctor_checks
+from augury.core.config import ConfigError, load_config
 from augury.core.paths import app_paths
+from augury.sources.http import PoliteClient
 
 
 @click.group(invoke_without_command=True)
@@ -18,7 +22,19 @@ def main(ctx: click.Context) -> None:
 @click.option("--offline", is_flag=True, help="Skip checks that need the network.")
 def doctor(offline: bool) -> None:
     """Check paths, config, database and (unless --offline) network access."""
-    checks = doctor_checks.run_checks(app_paths())
+    paths = app_paths()
+    checks = doctor_checks.run_checks(paths)
+    if not offline:
+        try:
+            http_cfg = load_config(paths).http
+        except ConfigError:
+            http_cfg = None
+
+        async def network() -> list[doctor_checks.Check]:
+            async with PoliteClient(http_cfg) as http:
+                return await doctor_checks.check_network(http)
+
+        checks += asyncio.run(network())
     click.echo(doctor_checks.format_checks(checks))
     if doctor_checks.failed(checks):
         raise SystemExit(1)

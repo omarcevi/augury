@@ -1,0 +1,763 @@
+[
+ {
+  "paper": {
+   "id": "2609.24984",
+   "authors": [
+    {
+     "_id": "6ab1ecfb38788866c1a06ea9",
+     "name": "Wangbo Yu",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eaa",
+     "user": {
+      "_id": "660b79aa822b119f215c3488",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/660b79aa822b119f215c3488/le_EuzAz6mhW0FQ9J0knV.jpeg",
+      "isPro": false,
+      "fullname": "Kunhao Liu",
+      "user": "KunhaoLiu",
+      "type": "user",
+      "name": "KunhaoLiu"
+     },
+     "name": "Kunhao Liu",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2026-09-22T16:45:04.910Z",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eab",
+     "user": {
+      "_id": "657a7458afbb0117ba15c59f",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/657a7458afbb0117ba15c59f/8_iwTS1UG_mKnfylFbLsY.jpeg",
+      "isPro": false,
+      "fullname": "Wenbo Hu",
+      "user": "wbhu-tc",
+      "type": "user",
+      "name": "wbhu-tc"
+     },
+     "name": "Wenbo Hu",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2026-09-22T08:45:05.566Z",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eac",
+     "user": {
+      "_id": "63468720dd6d90d82ccf3450",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/63468720dd6d90d82ccf3450/tVBFlmZNz8FRMkOrDaDID.jpeg",
+      "isPro": false,
+      "fullname": "YSH",
+      "user": "BestWishYsh",
+      "type": "user",
+      "name": "BestWishYsh"
+     },
+     "name": "Shenghai Yuan",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2026-09-22T09:14:40.864Z",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06ead",
+     "name": "Chaoran Feng",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eae",
+     "name": "Haiyang Zhou",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eaf",
+     "user": {
+      "_id": "638ee900ee7e45e0474a5712",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/638ee900ee7e45e0474a5712/KLli_eCbWwffKR7oLDmV3.jpeg",
+      "isPro": false,
+      "fullname": "Yukun Huang",
+      "user": "KevinHuang",
+      "type": "user",
+      "name": "KevinHuang"
+     },
+     "name": "Yukun Huang",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2026-09-23T08:45:05.325Z",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eb0",
+     "name": "Yiran Wang",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eb1",
+     "name": "Wang Zhao",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eb2",
+     "name": "Yingmin Luo",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1ecfb38788866c1a06eb3",
+     "name": "Ying Shan",
+     "hidden": false
+    }
+   ],
+   "mediaUrls": [
+    "https://cdn-uploads.huggingface.co/production/uploads/63f095be6309c84d5f48848a/ZCMR7AnmVkKNwsI9XxAPT.mp4"
+   ],
+   "publishedAt": "2026-09-21T00:00:00.000Z",
+   "submittedOnDailyAt": "2026-09-22T00:00:00.000Z",
+   "title": "WorldCrafter: Consistent Video World Model with Implicit 3D-aware Memory",
+   "submittedOnDailyBy": {
+    "_id": "63f095be6309c84d5f48848a",
+    "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/63f095be6309c84d5f48848a/pL2CKi-r-0mMfIGhYSAsm.jpeg",
+    "isPro": false,
+    "fullname": "Wangbo Yu",
+    "user": "Drexubery",
+    "type": "user",
+    "name": "Drexubery"
+   },
+   "summary": "Video world models enable interactive exploration of dynamic environments, yet struggle to respect prior observations over long horizons and across viewpoints. We present WorldCrafter, a video world model that learns a camera-queryable implicit 3D-aware memory for this purpose. The key insight is to let the requested viewpoint shape how multi-view evidence is compressed into the video generator's limited token budget. Trained jointly with the video generator, a memory encoder and pose-conditioned readout module integrate historical observations into a fixed set of target view-specific tokens before denoising, without explicit depth-based correspondences. By combining this memory with recent temporal context and few-step distillation, WorldCrafter enables streaming scene exploration from a single input image or text prompt. Experiments across static and dynamic scenes show substantial gains in long-horizon consistency and camera-control accuracy while preserving visual quality during minute-scale exploration.",
+   "upvotes": 148,
+   "discussionId": "6ab1ecfb38788866c1a06eb4",
+   "projectPage": "https://drexubery.github.io/WorldCrafter",
+   "githubRepo": "https://github.com/TencentARC/WorldCrafter",
+   "githubRepoAddedBy": "user",
+   "githubStars": 346,
+   "organization": {
+    "_id": "60e3f7f641ca131919975fe5",
+    "name": "TencentARC",
+    "fullname": "ARC Lab, Tencent",
+    "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/1625552871844-60e272ca6c78a8c122b12127.png"
+   }
+  },
+  "publishedAt": "2026-09-20T20:00:00.000Z",
+  "title": "WorldCrafter: Consistent Video World Model with Implicit 3D-aware Memory",
+  "summary": "Video world models enable interactive exploration of dynamic environments, yet struggle to respect prior observations over long horizons and across viewpoints. We present WorldCrafter, a video world model that learns a camera-queryable implicit 3D-aware memory for this purpose. The key insight is to let the requested viewpoint shape how multi-view evidence is compressed into the video generator's limited token budget. Trained jointly with the video generator, a memory encoder and pose-conditioned readout module integrate historical observations into a fixed set of target view-specific tokens before denoising, without explicit depth-based correspondences. By combining this memory with recent temporal context and few-step distillation, WorldCrafter enables streaming scene exploration from a single input image or text prompt. Experiments across static and dynamic scenes show substantial gains in long-horizon consistency and camera-control accuracy while preserving visual quality during minute-scale exploration.",
+  "mediaUrls": [
+   "https://cdn-uploads.huggingface.co/production/uploads/63f095be6309c84d5f48848a/ZCMR7AnmVkKNwsI9XxAPT.mp4"
+  ],
+  "thumbnail": "https://cdn-thumbnails.huggingface.co/social-thumbnails/papers/2609.24984.png",
+  "numComments": 4,
+  "submittedBy": {
+   "_id": "63f095be6309c84d5f48848a",
+   "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/63f095be6309c84d5f48848a/pL2CKi-r-0mMfIGhYSAsm.jpeg",
+   "fullname": "Wangbo Yu",
+   "name": "Drexubery",
+   "type": "user",
+   "isPro": false,
+   "isHf": false,
+   "isHfAdmin": false,
+   "isMod": false,
+   "followerCount": 5,
+   "isUserFollowing": false
+  },
+  "organization": {
+   "_id": "60e3f7f641ca131919975fe5",
+   "name": "TencentARC",
+   "fullname": "ARC Lab, Tencent",
+   "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/1625552871844-60e272ca6c78a8c122b12127.png"
+  },
+  "isAuthorParticipating": true
+ },
+ {
+  "paper": {
+   "id": "2412.20138",
+   "authors": [
+    {
+     "_id": "6847673b3ec10bdd8ab4dd5e",
+     "user": {
+      "_id": "619b6a24030b707ff1f05dee",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/619b6a24030b707ff1f05dee/8FZjePfOuTtN3uvTmaEg5.jpeg",
+      "isPro": false,
+      "fullname": "Yijia Xiao",
+      "user": "Yijia-Xiao",
+      "type": "user",
+      "name": "Yijia-Xiao"
+     },
+     "name": "Yijia Xiao",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2026-08-08T16:45:04.607Z",
+     "hidden": false
+    },
+    {
+     "_id": "6847673b3ec10bdd8ab4dd5f",
+     "name": "Edward Sun",
+     "hidden": false
+    },
+    {
+     "_id": "6847673b3ec10bdd8ab4dd60",
+     "name": "Di Luo",
+     "hidden": false
+    },
+    {
+     "_id": "6847673b3ec10bdd8ab4dd61",
+     "name": "Wei Wang",
+     "hidden": false
+    }
+   ],
+   "publishedAt": "2024-12-28T12:54:06.000Z",
+   "title": "TradingAgents: Multi-Agents LLM Financial Trading Framework",
+   "summary": "Significant progress has been made in automated problem-solving using\nsocieties of agents powered by large language models (LLMs). In finance,\nefforts have largely focused on single-agent systems handling specific tasks or\nmulti-agent frameworks independently gathering data. However, the multi-agent\nsystems' potential to replicate real-world trading firms' collaborative\ndynamics remains underexplored. TradingAgents proposes a novel stock trading\nframework inspired by trading firms, featuring LLM-powered agents in\nspecialized roles such as fundamental analysts, sentiment analysts, technical\nanalysts, and traders with varied risk profiles. The framework includes Bull\nand Bear researcher agents assessing market conditions, a risk management team\nmonitoring exposure, and traders synthesizing insights from debates and\nhistorical data to make informed decisions. By simulating a dynamic,\ncollaborative trading environment, this framework aims to improve trading\nperformance. Detailed architecture and extensive experiments reveal its\nsuperiority over baseline models, with notable improvements in cumulative\nreturns, Sharpe ratio, and maximum drawdown, highlighting the potential of\nmulti-agent LLM frameworks in financial trading. TradingAgents is available at\nhttps://github.com/TauricResearch/TradingAgents.",
+   "upvotes": 144,
+   "discussionId": "6847673c3ec10bdd8ab4dd62",
+   "githubRepo": "https://github.com/tauricresearch/tradingagents",
+   "githubRepoAddedBy": "auto",
+   "ai_summary": "A multi-agent framework using large language models for stock trading simulates real-world trading firms, improving performance metrics like cumulative returns and Sharpe ratio.",
+   "ai_keywords": [
+    "large language models",
+    "LLM",
+    "multi-agent systems",
+    "fundamental analysts",
+    "sentiment analysts",
+    "technical analysts",
+    "traders",
+    "risk management",
+    "cumulative returns",
+    "Sharpe ratio",
+    "maximum drawdown"
+   ],
+   "ai_summary_model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+   "githubStars": 108509
+  },
+  "publishedAt": "2024-12-28T07:54:06.000Z",
+  "title": "TradingAgents: Multi-Agents LLM Financial Trading Framework",
+  "summary": "Significant progress has been made in automated problem-solving using\nsocieties of agents powered by large language models (LLMs). In finance,\nefforts have largely focused on single-agent systems handling specific tasks or\nmulti-agent frameworks independently gathering data. However, the multi-agent\nsystems' potential to replicate real-world trading firms' collaborative\ndynamics remains underexplored. TradingAgents proposes a novel stock trading\nframework inspired by trading firms, featuring LLM-powered agents in\nspecialized roles such as fundamental analysts, sentiment analysts, technical\nanalysts, and traders with varied risk profiles. The framework includes Bull\nand Bear researcher agents assessing market conditions, a risk management team\nmonitoring exposure, and traders synthesizing insights from debates and\nhistorical data to make informed decisions. By simulating a dynamic,\ncollaborative trading environment, this framework aims to improve trading\nperformance. Detailed architecture and extensive experiments reveal its\nsuperiority over baseline models, with notable improvements in cumulative\nreturns, Sharpe ratio, and maximum drawdown, highlighting the potential of\nmulti-agent LLM frameworks in financial trading. TradingAgents is available at\nhttps://github.com/TauricResearch/TradingAgents.",
+  "thumbnail": "https://cdn-thumbnails.huggingface.co/social-thumbnails/papers/2412.20138.png",
+  "numComments": 6,
+  "isAuthorParticipating": true
+ },
+ {
+  "paper": {
+   "id": "2503.11576",
+   "authors": [
+    {
+     "_id": "67d7d1c38a15934c10b1576d",
+     "user": {
+      "_id": "63c64fdd77caf00391006211",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/1673940984052-63c64fdd77caf00391006211.jpeg",
+      "isPro": true,
+      "fullname": "Ahmed Nassar",
+      "user": "asnassar",
+      "type": "user",
+      "name": "asnassar"
+     },
+     "name": "Ahmed Nassar",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2025-03-18T08:09:03.445Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b1576e",
+     "user": {
+      "_id": "65d66b494bbd0d92b641cdbb",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/65d66b494bbd0d92b641cdbb/6-7dm7B-JxcoS1QlCPdMN.jpeg",
+      "isPro": false,
+      "fullname": "Andres Marafioti",
+      "user": "andito",
+      "type": "user",
+      "name": "andito"
+     },
+     "name": "Andres Marafioti",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2025-03-17T14:42:18.190Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b1576f",
+     "user": {
+      "_id": "663e1254887b6f5645a0399f",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/663e1254887b6f5645a0399f/CXtmipcpwK3LMIQNeinVg.jpeg",
+      "isPro": false,
+      "fullname": "Matteo Omenetti",
+      "user": "MatteoOmenetti",
+      "type": "user",
+      "name": "MatteoOmenetti"
+     },
+     "name": "Matteo Omenetti",
+     "status": "admin_assigned",
+     "statusLastChangedAt": "2025-03-17T15:05:38.055Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15770",
+     "user": {
+      "_id": "665a2d536a8e042a0bf9b7b0",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/665a2d536a8e042a0bf9b7b0/wA8QmKPW1BSRWNJyx_st0.jpeg",
+      "isPro": false,
+      "fullname": "Maksym Lysak",
+      "user": "MaxMnemonic",
+      "type": "user",
+      "name": "MaxMnemonic"
+     },
+     "name": "Maksym Lysak",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2025-03-17T16:32:51.359Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15771",
+     "user": {
+      "_id": "67938030aa5e507f71eb0e44",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/67938030aa5e507f71eb0e44/U_7TxvZFuTeJ-Gtfatbzj.jpeg",
+      "isPro": false,
+      "fullname": "Nikos Livathinos",
+      "user": "nlivathinos",
+      "type": "user",
+      "name": "nlivathinos"
+     },
+     "name": "Nikolaos Livathinos",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2025-03-17T16:32:49.368Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15772",
+     "user": {
+      "_id": "67aa428095116c7b8e4204d4",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/no-auth/dT638jwk8CTQ6tGJ0ullR.png",
+      "isPro": false,
+      "fullname": "Christoph Auer",
+      "user": "ChristophAuer",
+      "type": "user",
+      "name": "ChristophAuer"
+     },
+     "name": "Christoph Auer",
+     "status": "admin_assigned",
+     "statusLastChangedAt": "2025-03-17T15:05:12.752Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15773",
+     "user": {
+      "_id": "64d38f55f8082bf19b7339e0",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/64d38f55f8082bf19b7339e0/zKbW5sSUY4TulbD20axRg.jpeg",
+      "isPro": false,
+      "fullname": "Lucas Morin",
+      "user": "lucas-morin",
+      "type": "user",
+      "name": "lucas-morin"
+     },
+     "name": "Lucas Morin",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2025-10-28T15:41:35.917Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15774",
+     "user": {
+      "_id": "65ce0dbef3bbc55ca4d0528f",
+      "avatarUrl": "/avatars/ae19424457dbec49579fe5a4ae7177b0.svg",
+      "isPro": false,
+      "fullname": "Rafael Teixeira de Lima",
+      "user": "rtdl",
+      "type": "user",
+      "name": "rtdl"
+     },
+     "name": "Rafael Teixeira de Lima",
+     "status": "admin_assigned",
+     "statusLastChangedAt": "2025-03-17T15:03:11.221Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15775",
+     "name": "Yusik Kim",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15776",
+     "user": {
+      "_id": "65d4dab8be26e8e084d29b98",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/65d4dab8be26e8e084d29b98/67m-1xtaONgP3sJCw5_k1.jpeg",
+      "isPro": false,
+      "fullname": "Said Gurbuz",
+      "user": "Saidgurbuz",
+      "type": "user",
+      "name": "Saidgurbuz"
+     },
+     "name": "A. Said Gurbuz",
+     "status": "admin_assigned",
+     "statusLastChangedAt": "2025-03-17T15:03:01.577Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15777",
+     "user": {
+      "_id": "63c64dd877caf00391004e20",
+      "avatarUrl": "/avatars/6350443da6405ea7beccf47a80d8710e.svg",
+      "isPro": false,
+      "fullname": "Michele Dolfi",
+      "user": "dolfim-ibm",
+      "type": "user",
+      "name": "dolfim-ibm"
+     },
+     "name": "Michele Dolfi",
+     "status": "admin_assigned",
+     "statusLastChangedAt": "2025-03-17T15:02:52.883Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15778",
+     "user": {
+      "_id": "61ed0ff29539bc0a3bbc89f4",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/61ed0ff29539bc0a3bbc89f4/iYWK7GParA7Ke5F6q132W.jpeg",
+      "isPro": false,
+      "fullname": "Miquel Farré",
+      "user": "mfarre",
+      "type": "user",
+      "name": "mfarre"
+     },
+     "name": "Miquel Farré",
+     "status": "admin_assigned",
+     "statusLastChangedAt": "2025-03-17T15:05:05.893Z",
+     "hidden": false
+    },
+    {
+     "_id": "67d7d1c38a15934c10b15779",
+     "user": {
+      "_id": "63c6522d8fddd19431f48bcc",
+      "avatarUrl": "/avatars/e2ec9c76656b7520472718595f9dafe1.svg",
+      "isPro": false,
+      "fullname": "Peter W. J. Staar",
+      "user": "PeterStaar",
+      "type": "user",
+      "name": "PeterStaar"
+     },
+     "name": "Peter W. J. Staar",
+     "status": "admin_assigned",
+     "statusLastChangedAt": "2025-03-17T15:01:33.085Z",
+     "hidden": false
+    }
+   ],
+   "publishedAt": "2025-03-14T16:44:14.000Z",
+   "submittedOnDailyAt": "2025-03-17T00:00:00.000Z",
+   "title": "SmolDocling: An ultra-compact vision-language model for end-to-end\n  multi-modal document conversion",
+   "submittedOnDailyBy": {
+    "_id": "65d66b494bbd0d92b641cdbb",
+    "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/65d66b494bbd0d92b641cdbb/6-7dm7B-JxcoS1QlCPdMN.jpeg",
+    "isPro": false,
+    "fullname": "Andres Marafioti",
+    "user": "andito",
+    "type": "user",
+    "name": "andito"
+   },
+   "summary": "We introduce SmolDocling, an ultra-compact vision-language model targeting\nend-to-end document conversion. Our model comprehensively processes entire\npages by generating DocTags, a new universal markup format that captures all\npage elements in their full context with location. Unlike existing approaches\nthat rely on large foundational models, or ensemble solutions that rely on\nhandcrafted pipelines of multiple specialized models, SmolDocling offers an\nend-to-end conversion for accurately capturing content, structure and spatial\nlocation of document elements in a 256M parameters vision-language model.\nSmolDocling exhibits robust performance in correctly reproducing document\nfeatures such as code listings, tables, equations, charts, lists, and more\nacross a diverse range of document types including business documents, academic\npapers, technical reports, patents, and forms -- significantly extending beyond\nthe commonly observed focus on scientific papers. Additionally, we contribute\nnovel publicly sourced datasets for charts, tables, equations, and code\nrecognition. Experimental results demonstrate that SmolDocling competes with\nother Vision Language Models that are up to 27 times larger in size, while\nreducing computational requirements substantially. The model is currently\navailable, datasets will be publicly available soon.",
+   "upvotes": 177,
+   "discussionId": "67d7d1c68a15934c10b15841",
+   "projectPage": "https://huggingface.co/ds4sd/SmolDocling-256M-preview",
+   "githubRepo": "https://github.com/docling-project/docling",
+   "githubRepoAddedBy": "auto",
+   "ai_summary": "SmolDocling is a compact vision-language model that performs end-to-end document conversion with robust performance across various document types using 256M parameters and a new markup format.",
+   "ai_keywords": [
+    "vision-language model",
+    "DocTags",
+    "end-to-end document conversion",
+    "universal markup format",
+    "page elements",
+    "location context",
+    "large foundational models",
+    "ensemble solutions",
+    "specialized models",
+    "code listings",
+    "tables",
+    "equations",
+    "charts",
+    "lists",
+    "diverse document types",
+    "publicly sourced datasets",
+    "Vision Language Models",
+    "computational requirements"
+   ],
+   "ai_summary_model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+   "githubStars": 67915,
+   "organization": {
+    "_id": "6624c149a8d1362ebc6bc6da",
+    "name": "ibm-granite",
+    "fullname": "IBM Granite",
+    "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/639bcaa2445b133a4e942436/CEW-OjXkRkDNmTxSu8Egh.png"
+   }
+  },
+  "publishedAt": "2025-03-14T12:44:14.000Z",
+  "title": "SmolDocling: An ultra-compact vision-language model for end-to-end\n  multi-modal document conversion",
+  "summary": "We introduce SmolDocling, an ultra-compact vision-language model targeting\nend-to-end document conversion. Our model comprehensively processes entire\npages by generating DocTags, a new universal markup format that captures all\npage elements in their full context with location. Unlike existing approaches\nthat rely on large foundational models, or ensemble solutions that rely on\nhandcrafted pipelines of multiple specialized models, SmolDocling offers an\nend-to-end conversion for accurately capturing content, structure and spatial\nlocation of document elements in a 256M parameters vision-language model.\nSmolDocling exhibits robust performance in correctly reproducing document\nfeatures such as code listings, tables, equations, charts, lists, and more\nacross a diverse range of document types including business documents, academic\npapers, technical reports, patents, and forms -- significantly extending beyond\nthe commonly observed focus on scientific papers. Additionally, we contribute\nnovel publicly sourced datasets for charts, tables, equations, and code\nrecognition. Experimental results demonstrate that SmolDocling competes with\nother Vision Language Models that are up to 27 times larger in size, while\nreducing computational requirements substantially. The model is currently\navailable, datasets will be publicly available soon.",
+  "thumbnail": "https://cdn-thumbnails.huggingface.co/social-thumbnails/papers/2503.11576.png",
+  "numComments": 19,
+  "submittedBy": {
+   "_id": "65d66b494bbd0d92b641cdbb",
+   "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/65d66b494bbd0d92b641cdbb/6-7dm7B-JxcoS1QlCPdMN.jpeg",
+   "fullname": "Andres Marafioti",
+   "name": "andito",
+   "type": "user",
+   "isPro": false,
+   "isHf": true,
+   "isHfAdmin": false,
+   "isMod": false,
+   "followerCount": 613,
+   "isUserFollowing": false
+  },
+  "organization": {
+   "_id": "6624c149a8d1362ebc6bc6da",
+   "name": "ibm-granite",
+   "fullname": "IBM Granite",
+   "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/639bcaa2445b133a4e942436/CEW-OjXkRkDNmTxSu8Egh.png"
+  },
+  "isAuthorParticipating": true
+ },
+ {
+  "paper": {
+   "id": "2609.24981",
+   "authors": [
+    {
+     "_id": "6ab273577c4755aaefb4a4bb",
+     "name": "Jiahao Lu",
+     "hidden": false
+    },
+    {
+     "_id": "6ab273577c4755aaefb4a4bc",
+     "user": {
+      "_id": "64912d6b2549fd68a774ad3d",
+      "avatarUrl": "/avatars/bd9483c5c1e326a685c2ddf1bcf2d074.svg",
+      "isPro": false,
+      "fullname": "Michael Y",
+      "user": "Michaelqaz",
+      "type": "user",
+      "name": "Michaelqaz"
+     },
+     "name": "Minghao Yin",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2026-09-23T10:55:53.320Z",
+     "hidden": false
+    },
+    {
+     "_id": "6ab273577c4755aaefb4a4bd",
+     "user": {
+      "_id": "657a7458afbb0117ba15c59f",
+      "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/657a7458afbb0117ba15c59f/8_iwTS1UG_mKnfylFbLsY.jpeg",
+      "isPro": false,
+      "fullname": "Wenbo Hu",
+      "user": "wbhu-tc",
+      "type": "user",
+      "name": "wbhu-tc"
+     },
+     "name": "Wenbo Hu",
+     "status": "claimed_verified",
+     "statusLastChangedAt": "2026-09-23T08:45:05.407Z",
+     "hidden": false
+    },
+    {
+     "_id": "6ab273577c4755aaefb4a4be",
+     "name": "Hengyu Liu",
+     "hidden": false
+    },
+    {
+     "_id": "6ab273577c4755aaefb4a4bf",
+     "name": "Wang Zhao",
+     "hidden": false
+    },
+    {
+     "_id": "6ab273577c4755aaefb4a4c0",
+     "name": "Sai-Kit Yeung",
+     "hidden": false
+    },
+    {
+     "_id": "6ab273577c4755aaefb4a4c1",
+     "name": "Ying Shan",
+     "hidden": false
+    },
+    {
+     "_id": "6ab273577c4755aaefb4a4c2",
+     "name": "Yuan Liu",
+     "hidden": false
+    }
+   ],
+   "mediaUrls": [
+    "https://cdn-uploads.huggingface.co/production/uploads/64912d6b2549fd68a774ad3d/FQ6oupZh1V4N8tJZnxOOd.mp4"
+   ],
+   "publishedAt": "2026-09-21T00:00:00.000Z",
+   "submittedOnDailyAt": "2026-09-23T00:00:00.000Z",
+   "title": "GAE: Learning a Geometry-Native Latent Space for 3D-Consistent World Generation",
+   "submittedOnDailyBy": {
+    "_id": "64912d6b2549fd68a774ad3d",
+    "avatarUrl": "/avatars/bd9483c5c1e326a685c2ddf1bcf2d074.svg",
+    "isPro": false,
+    "fullname": "Michael Y",
+    "user": "Michaelqaz",
+    "type": "user",
+    "name": "Michaelqaz"
+   },
+   "summary": "We present a compact geometry-native latent space as a shared foundation for perception and generation. Visual generators can produce photorealistic frames without preserving a consistent 3D scene. We argue that this is not only a modeling problem but also a representation problem: generators typically evolve appearance-centric latents, while perception models recover geometry in a semantically rich space that encodes cross-view structure. Rather than adding geometry as another output, we reparameterize a geometry foundation model's features into a compact latent space for generation. We realize this shift with the geometry-native autoencoder (GAE), whose latent is jointly decodable to appearance, depth, cameras, and point maps. With this state, a standard conditional flow supports diverse generation tasks. In controlled comparisons that hold the generator and training protocol fixed, replacing the latent with GAE improves both visual quality and independently measured 3D coherence: FVD falls by 12.7% and 23.1% on RealEstate10K and DL3DV, and camera-trajectory error is halved on RealEstate10K. Together, these results show that the latent space is central to geometry-consistent generation and can serve as a shared interface between perception and generation.",
+   "upvotes": 47,
+   "discussionId": "6ab273577c4755aaefb4a4c3",
+   "projectPage": "https://jiah-cloud.github.io/GAE.github.io/",
+   "githubRepo": "https://github.com/TencentARC/GAE-GeometricAutoEncoder",
+   "githubRepoAddedBy": "user",
+   "githubStars": 294,
+   "organization": {
+    "_id": "60e3f7f641ca131919975fe5",
+    "name": "TencentARC",
+    "fullname": "ARC Lab, Tencent",
+    "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/1625552871844-60e272ca6c78a8c122b12127.png"
+   }
+  },
+  "publishedAt": "2026-09-20T20:00:00.000Z",
+  "title": "GAE: Learning a Geometry-Native Latent Space for 3D-Consistent World Generation",
+  "summary": "We present a compact geometry-native latent space as a shared foundation for perception and generation. Visual generators can produce photorealistic frames without preserving a consistent 3D scene. We argue that this is not only a modeling problem but also a representation problem: generators typically evolve appearance-centric latents, while perception models recover geometry in a semantically rich space that encodes cross-view structure. Rather than adding geometry as another output, we reparameterize a geometry foundation model's features into a compact latent space for generation. We realize this shift with the geometry-native autoencoder (GAE), whose latent is jointly decodable to appearance, depth, cameras, and point maps. With this state, a standard conditional flow supports diverse generation tasks. In controlled comparisons that hold the generator and training protocol fixed, replacing the latent with GAE improves both visual quality and independently measured 3D coherence: FVD falls by 12.7% and 23.1% on RealEstate10K and DL3DV, and camera-trajectory error is halved on RealEstate10K. Together, these results show that the latent space is central to geometry-consistent generation and can serve as a shared interface between perception and generation.",
+  "mediaUrls": [
+   "https://cdn-uploads.huggingface.co/production/uploads/64912d6b2549fd68a774ad3d/FQ6oupZh1V4N8tJZnxOOd.mp4"
+  ],
+  "thumbnail": "https://cdn-thumbnails.huggingface.co/social-thumbnails/papers/2609.24981.png",
+  "numComments": 4,
+  "submittedBy": {
+   "_id": "64912d6b2549fd68a774ad3d",
+   "avatarUrl": "/avatars/bd9483c5c1e326a685c2ddf1bcf2d074.svg",
+   "fullname": "Michael Y",
+   "name": "Michaelqaz",
+   "type": "user",
+   "isPro": false,
+   "isHf": false,
+   "isHfAdmin": false,
+   "isMod": false,
+   "isUserFollowing": false
+  },
+  "organization": {
+   "_id": "60e3f7f641ca131919975fe5",
+   "name": "TencentARC",
+   "fullname": "ARC Lab, Tencent",
+   "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/1625552871844-60e272ca6c78a8c122b12127.png"
+  },
+  "isAuthorParticipating": true
+ },
+ {
+  "paper": {
+   "id": "2609.25001",
+   "authors": [
+    {
+     "_id": "6ab1f90238788866c1a06f43",
+     "name": "Yiran Wang",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f44",
+     "name": "Xingyilang Yin",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f45",
+     "name": "Junfu Pu",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f46",
+     "name": "Guangzhi Wang",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f47",
+     "name": "Kaifeng Li",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f48",
+     "name": "Mingyu Ouyang",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f49",
+     "name": "Huiqiang Sun",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f4a",
+     "name": "Lingen Li",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f4b",
+     "name": "Cheng Cheng",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f4c",
+     "name": "Wangbo Yu",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f4d",
+     "name": "Honghao Chen",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f4e",
+     "name": "Xiaodong Cun",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f4f",
+     "name": "Chi-Man Pun",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f50",
+     "name": "Zhiguo Cao",
+     "hidden": false
+    },
+    {
+     "_id": "6ab1f90238788866c1a06f51",
+     "name": "Ying Shan",
+     "hidden": false
+    }
+   ],
+   "publishedAt": "2026-09-21T00:00:00.000Z",
+   "submittedOnDailyAt": "2026-09-22T00:00:00.000Z",
+   "title": "GameHorizon Suite: Multi-Horizon Data and Evaluation in Gameplay",
+   "submittedOnDailyBy": {
+    "_id": "6039478ab3ecf716b1a5fd4d",
+    "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/6039478ab3ecf716b1a5fd4d/_Thy4E7taiSYBLKxEKJbT.jpeg",
+    "isPro": true,
+    "fullname": "taesiri",
+    "user": "taesiri",
+    "type": "user",
+    "name": "taesiri"
+   },
+   "summary": "Modern video games provide a measurable testbed for AI models, combining abilities of visual understanding, instruction decomposition, goal planning, and precise action control over multiple temporal horizons. Existing datasets and benchmarks, however, either cover a narrow range of games, lack language instructions, or rely on high-variance online rollouts. To address these challenges, we introduce GameHorizon, a unified data and evaluation suite that measures gameplay capabilities at different horizons for diverse model families. GameHorizon Suite consists of three components. First, GameHorizon-Annotator is a scalable and automated annotation pipeline for multi-horizon instructions. Second, utilizing the pipeline, we construct GameHorizon-Data, the first large-scale AAA gameplay dataset with temporally aligned videos, player actions, and multi-horizon instructions. It comprises 5,000 hours of recordings from 21 games, collected by 100 human expert players. Third, we build GameHorizon-Bench with reproducible offline and stepwise online testing. The offline track enables reproducible evaluation using thousands of standardized questions organized into three primary tasks and a series of diagnostic variants, while the online track tests whether offline scores reflect actual gameplay capabilities and localizes failures to specific steps within long-horizon gameplay. Based on our GameHorizon Suite, we evaluate 47 models through more than one million model invocations, revealing a meaningful hierarchy of task difficulty and pronounced differences in model capabilities. Our work can provide a standardized yardstick for evaluating gameplay capabilities across horizons and model families. We will release our dataset, annotator, and benchmark to facilitate future research.",
+   "upvotes": 130,
+   "discussionId": "6ab1f90238788866c1a06f52",
+   "projectPage": "https://gamehorizon-suite.github.io/",
+   "githubRepo": "https://github.com/TencentARC/GameHorizon",
+   "githubRepoAddedBy": "user",
+   "githubStars": 230,
+   "organization": {
+    "_id": "66543b6e420092799d2f625c",
+    "name": "tencent",
+    "fullname": "Tencent",
+    "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/5dd96eb166059660ed1ee413/Lp3m-XLpjQGwBItlvn69q.png"
+   }
+  },
+  "publishedAt": "2026-09-20T20:00:00.000Z",
+  "title": "GameHorizon Suite: Multi-Horizon Data and Evaluation in Gameplay",
+  "summary": "Modern video games provide a measurable testbed for AI models, combining abilities of visual understanding, instruction decomposition, goal planning, and precise action control over multiple temporal horizons. Existing datasets and benchmarks, however, either cover a narrow range of games, lack language instructions, or rely on high-variance online rollouts. To address these challenges, we introduce GameHorizon, a unified data and evaluation suite that measures gameplay capabilities at different horizons for diverse model families. GameHorizon Suite consists of three components. First, GameHorizon-Annotator is a scalable and automated annotation pipeline for multi-horizon instructions. Second, utilizing the pipeline, we construct GameHorizon-Data, the first large-scale AAA gameplay dataset with temporally aligned videos, player actions, and multi-horizon instructions. It comprises 5,000 hours of recordings from 21 games, collected by 100 human expert players. Third, we build GameHorizon-Bench with reproducible offline and stepwise online testing. The offline track enables reproducible evaluation using thousands of standardized questions organized into three primary tasks and a series of diagnostic variants, while the online track tests whether offline scores reflect actual gameplay capabilities and localizes failures to specific steps within long-horizon gameplay. Based on our GameHorizon Suite, we evaluate 47 models through more than one million model invocations, revealing a meaningful hierarchy of task difficulty and pronounced differences in model capabilities. Our work can provide a standardized yardstick for evaluating gameplay capabilities across horizons and model families. We will release our dataset, annotator, and benchmark to facilitate future research.",
+  "thumbnail": "https://cdn-thumbnails.huggingface.co/social-thumbnails/papers/2609.25001.png",
+  "numComments": 3,
+  "submittedBy": {
+   "_id": "6039478ab3ecf716b1a5fd4d",
+   "avatarUrl": "https://cdn-avatars.huggingface.co/v1/production/uploads/6039478ab3ecf716b1a5fd4d/_Thy4E7taiSYBLKxEKJbT.jpeg",
+   "fullname": "taesiri",
+   "name": "taesiri",
+   "type": "user",
+   "isPro": true,
+   "isHf": false,
+   "isHfAdmin": false,
+   "isMod": false,
+   "followerCount": 387,
+   "isUserFollowing": false
+  },
+  "organization": {
+   "_id": "66543b6e420092799d2f625c",
+   "name": "tencent",
+   "fullname": "Tencent",
+   "avatar": "https://cdn-avatars.huggingface.co/v1/production/uploads/5dd96eb166059660ed1ee413/Lp3m-XLpjQGwBItlvn69q.png"
+  },
+  "isAuthorParticipating": false
+ }
+]
