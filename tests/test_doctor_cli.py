@@ -15,3 +15,9 @@ def test_doctor_fails_on_broken_config(paths):
     result = CliRunner().invoke(main, ["doctor", "--offline"])
     assert result.exit_code == 1
     assert "✗ config" in result.output
+
+
+def test_doctor_reports_database(paths):
+    result = CliRunner().invoke(main, ["doctor", "--offline"])
+    assert "✓ database" in result.output
+    assert "(schema v1)" in result.output

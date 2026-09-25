@@ -1,8 +1,12 @@
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from augury.core.config import ConfigError, load_config, load_interests
+from augury.core.db.connect import vec_version
+from augury.core.db.migrate import SchemaTooNew, schema_version
+from augury.core.db.open import open_db
 from augury.core.paths import AppPaths
 
 
@@ -38,8 +42,32 @@ def check_config(paths: AppPaths) -> list[Check]:
     return checks
 
 
+def check_database(paths: AppPaths) -> list[Check]:
+    try:
+        conn = open_db(paths)
+    except SchemaTooNew as e:
+        return [Check("database", False, str(e))]
+    except sqlite3.Error as e:
+        return [Check("database", False, f"{paths.db_file}: {e}")]
+    try:
+        version, vec = schema_version(conn), vec_version(conn)
+    finally:
+        conn.close()
+    return [
+        Check("database", True, f"{paths.db_file} (schema v{version})"),
+        Check(
+            "sqlite-vec",
+            vec is not None,
+            vec
+            or "this Python can't load SQLite extensions (needed from M4); "
+            "install with `uv tool install` to get a managed Python",
+            required=False,
+        ),
+    ]
+
+
 def run_checks(paths: AppPaths) -> list[Check]:
-    return [*check_paths(paths), *check_config(paths)]
+    return [*check_paths(paths), *check_config(paths), *check_database(paths)]
 
 
 def format_checks(checks: list[Check]) -> str:
