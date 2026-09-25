@@ -118,8 +118,14 @@ def _row(r: sqlite3.Row) -> ItemRow:
 
 
 def list_items(
-    conn: sqlite3.Connection, f: ItemFilter, *, now: datetime, limit: int = 500
+    conn: sqlite3.Connection,
+    f: ItemFilter,
+    *,
+    now: datetime,
+    limit: int = 500,
+    pinned: str | None = None,
 ) -> tuple[list[ItemRow], int]:
+    """`pinned` (the item open in the reader) stays listed even if the filter would drop it."""
     where: list[str] = [_SHOW[f.show]]
     args: list[object] = []
     if (floor := date_floor(f.date, now)) is not None:
@@ -132,7 +138,16 @@ def list_items(
         if values:
             where.append(f"{column} IN ({','.join('?' * len(values))})")
             args.extend(sorted(values))
-    sql = f"{_SELECT} WHERE {' AND '.join(where)} ORDER BY {_ORDER[f.sort]} LIMIT ?"
+    condition = " AND ".join(where)
+    if pinned is not None:
+        condition = f"({condition}) OR i.id = ?"
+        args.append(pinned)
+    sql = f"{_SELECT} WHERE {condition} ORDER BY {_ORDER[f.sort]} LIMIT ?"
     rows = [_row(r) for r in conn.execute(sql, [*args, limit])]
     total = int(conn.execute("SELECT count(*) FROM items").fetchone()[0])
     return rows, total
+
+
+def get_item_row(conn: sqlite3.Connection, item_id: str, *, now: datetime) -> ItemRow | None:
+    row = conn.execute(f"{_SELECT} WHERE i.id = ?", (item_id,)).fetchone()
+    return _row(row) if row else None

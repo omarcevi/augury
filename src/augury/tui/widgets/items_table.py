@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 
 from rich.text import Text
+from textual import events
 from textual.widgets import DataTable
 
 from augury.tui.query import ItemRow
@@ -37,6 +38,8 @@ class ItemsTable(DataTable[Text]):
         super().__init__(cursor_type="row", id=id)
         self.rows_by_key: dict[str, ItemRow] = {}
         self.hidden_columns: frozenset[str] = frozenset()
+        self._drawn_with: tuple[datetime, Mapping[str, str]] | None = None
+        self._measured: tuple[int, frozenset[str]] | None = None
 
     def _title_width(self) -> int:
         fixed = sum((w or 0) + 2 for key, _, w in COLUMNS if w and key not in self.hidden_columns)
@@ -67,6 +70,8 @@ class ItemsTable(DataTable[Text]):
         return [cells[key] for key, _, _ in COLUMNS if key not in self.hidden_columns]
 
     def show(self, rows: list[ItemRow], now: datetime, palette: Mapping[str, str]) -> None:
+        self._drawn_with = (now, palette)
+        self._measured = (self._title_width(), self.hidden_columns)
         self.clear(columns=True)
         for key, label, width in COLUMNS:
             if key not in self.hidden_columns:
@@ -74,6 +79,30 @@ class ItemsTable(DataTable[Text]):
         self.rows_by_key = {r.id: r for r in rows}
         for r in rows:
             self.add_row(*self._cells(r, now, palette), key=r.id)
+
+    def remeasure(self) -> None:
+        """Rebuild the columns for the current width and hidden set; same rows, same cursor."""
+        if self._drawn_with is None or self._measured == (self._title_width(), self.hidden_columns):
+            return
+        current = self.current_row()
+        with self.prevent(DataTable.RowHighlighted):  # the selection itself doesn't change
+            self.show(list(self.rows_by_key.values()), *self._drawn_with)
+            if current is not None:
+                self.select_key(current.id)
+
+    def on_resize(self, event: events.Resize) -> None:
+        # The title column takes whatever width is left, and the real width is only known once
+        # the table is laid out (the app's own Resize arrives before that).
+        self.remeasure()
+
+    def update_row(self, row: ItemRow, now: datetime, palette: Mapping[str, str]) -> None:
+        """Redraw one row in place (e.g. its status dot) without reshuffling the table."""
+        if row.id not in self.rows_by_key:
+            return
+        self.rows_by_key[row.id] = row
+        keys = [key for key, _, _ in COLUMNS if key not in self.hidden_columns]
+        for key, cell in zip(keys, self._cells(row, now, palette), strict=True):
+            self.update_cell(row.id, key, cell)
 
     def current_row(self) -> ItemRow | None:
         if not self.rows_by_key or self.cursor_row < 0:

@@ -2,6 +2,8 @@ from collections.abc import Callable
 
 import httpx
 
+from augury.sources.http import HttpError, Response
+
 
 class FakeTime:
     """A clock that only moves when something sleeps, so throttling is testable."""
@@ -29,6 +31,24 @@ class NullHttp:
 
     async def get(self, url, *, etag=None, last_modified=None, respect_robots=True):
         raise AssertionError(f"unexpected network call: {url}")
+
+    async def sitemaps(self, url):
+        return []
+
+
+class CountingHttp:
+    """Serves canned pages and records each request, so tests can prove when the network is used."""
+
+    def __init__(self, pages: dict[str, bytes] | None = None) -> None:
+        self.pages = pages or {}
+        self.calls: list[str] = []
+        self.on_wait = None
+
+    async def get(self, url, *, etag=None, last_modified=None, respect_robots=True):
+        self.calls.append(url)
+        if url not in self.pages:
+            raise HttpError(url, "HTTP 404", status=404)
+        return Response(url, 200, httpx.Headers(), self.pages[url])
 
     async def sitemaps(self, url):
         return []

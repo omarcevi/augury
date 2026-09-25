@@ -4,8 +4,9 @@ from textual.widget import Widget
 
 from augury.tui.keymap import KEYMAP
 
-# These two hints must never scroll off the hints row, whatever width is available.
-_ESSENTIAL_LABELS = ("help", "quit")
+# These hints must never scroll off the hints row, whatever width is available ("back" is
+# the only way out of the full-screen reader on a narrow terminal).
+_ESSENTIAL_LABELS = ("help", "quit", "back")
 
 
 class StatusLine(Widget):

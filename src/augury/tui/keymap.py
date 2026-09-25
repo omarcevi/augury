@@ -24,6 +24,18 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
         KeyHint("q", "quit"),
     ),
     "SEARCH": (KeyHint("type", "filter"), KeyHint("enter/esc", "back to table")),
+    "READ": (
+        KeyHint("j/k", "scroll"),
+        KeyHint("[ ]", "section"),
+        KeyHint("c", "contents"),
+        KeyHint("z", "zen"),
+        KeyHint("n/p", "next/prev"),
+        KeyHint("o", "browser"),
+        KeyHint("l", "like"),
+        KeyHint("?", "help"),
+        KeyHint("q", "quit"),
+        KeyHint("esc", "back"),
+    ),
 }
 
 THEMES = (

@@ -57,3 +57,15 @@ async def test_blocked_url_scheme_never_opens_and_never_marks_opened(make_app, m
         await pilot.press("o")
         assert calls == []
     assert StateRepo(app.conn).get(item_id).read_at is None
+
+
+async def test_blocked_link_notice_shows_the_url_literally(make_app):
+    app = make_app()
+    store_items(
+        app.conn, [RawItem(source_id="hf-blog", url="javascript:[/]x", title="Evil")], now=NOW
+    )
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.press("o")
+        await pilot.pause()
+        notes = list(app._notifications)
+        assert notes and not notes[0].markup and "javascript:[/]x" in notes[0].message

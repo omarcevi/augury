@@ -13,6 +13,7 @@ from textual.pilot import Pilot
 from augury.core.config import Config
 from augury.core.db.open import open_db
 from augury.tui.app import AuguryApp
+from tests.helpers import NullHttp
 
 NOW = datetime(2026, 9, 25, 9, 0, tzinfo=UTC)
 
@@ -35,9 +36,13 @@ def utc_timezone(monkeypatch):
 
 @pytest.fixture
 def make_app(paths):
-    def factory(now: datetime = NOW, config: Config | None = None) -> AuguryApp:
+    def factory(now: datetime = NOW, config: Config | None = None, http=None) -> AuguryApp:
         return AuguryApp(
-            conn=open_db(paths, now=now), config=config or Config(), paths=paths, now=lambda: now
+            conn=open_db(paths, now=now),
+            config=config or Config(),
+            paths=paths,
+            now=lambda: now,
+            http_factory=lambda _cfg: http or NullHttp(),
         )
 
     return factory
