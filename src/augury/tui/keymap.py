@@ -8,7 +8,18 @@ class KeyHint:
 
 
 KEYMAP: dict[str, tuple[KeyHint, ...]] = {
-    "NORMAL": (KeyHint("?", "help"), KeyHint("t", "theme"), KeyHint("q", "quit")),
+    "NORMAL": (
+        KeyHint("/", "search"),
+        KeyHint("S", "sources"),
+        KeyHint("K", "kind"),
+        KeyHint("D", "date"),
+        KeyHint("s", "sort"),
+        KeyHint("v", "show"),
+        KeyHint("t", "theme"),
+        KeyHint("?", "help"),
+        KeyHint("q", "quit"),
+    ),
+    "SEARCH": (KeyHint("type", "filter"), KeyHint("enter/esc", "back to table")),
 }
 
 THEMES = (
