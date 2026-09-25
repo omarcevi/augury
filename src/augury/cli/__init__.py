@@ -5,6 +5,7 @@ import click
 from augury import __version__
 from augury import doctor as doctor_checks
 from augury.core.config import ConfigError, load_config
+from augury.core.db.open import open_db
 from augury.core.paths import app_paths
 from augury.sources.http import PoliteClient
 
@@ -15,7 +16,22 @@ from augury.sources.http import PoliteClient
 def main(ctx: click.Context) -> None:
     """Augury: a terminal-native AI digest reader."""
     if ctx.invoked_subcommand is None:
-        click.echo("The terminal UI arrives in F14. See `augury --help` for commands.")
+        _run_tui()
+
+
+def _run_tui() -> None:
+    from augury.tui.app import AuguryApp  # imported lazily so plain CLI commands stay quick
+
+    paths = app_paths()
+    try:
+        config = load_config(paths)
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+    conn = open_db(paths)
+    try:
+        AuguryApp(conn=conn, config=config, paths=paths).run()
+    finally:
+        conn.close()
 
 
 @main.command()

@@ -1,0 +1,6 @@
+Screen { layout: vertical; }
+#health { height: 3; border: round $primary; padding: 0 1; }
+#main { height: 1fr; }
+#status { height: 2; padding: 0 1; }
+HelpOverlay { align: center middle; }
+#help-body { width: 64; height: auto; max-height: 80%; border: round $accent; background: $surface; padding: 1 2; }
