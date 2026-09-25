@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -109,3 +109,27 @@ class Item(BaseModel):
     times_seen: int
     content_hash: str
     is_old: bool
+
+
+OLD_AFTER = timedelta(days=90)
+
+
+def is_old(published_at: datetime | None, first_seen: datetime) -> bool:
+    return published_at is not None and first_seen - published_at > OLD_AFTER
+
+
+class NormalizedItem(BaseModel):
+    id: str
+    source_id: str
+    kind: Kind
+    title: str
+    url: str
+    canonical_url: str
+    authors: list[str]
+    published_at: datetime | None
+    summary: str
+    arxiv_id: str | None
+    image_url: str | None
+    content_hash: str
+    signals: Signals
+    rank: int | None
