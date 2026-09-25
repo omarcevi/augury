@@ -133,3 +133,14 @@ class NormalizedItem(BaseModel):
     content_hash: str
     signals: Signals
     rank: int | None
+
+
+class Content(BaseModel):
+    item_id: str
+    status: Literal["ok", "failed", "paywalled"]
+    body_md: str = ""
+    extractor: str
+    extractor_version: int
+    word_count: int = 0
+    error: str | None = None
+    fetched_at: datetime

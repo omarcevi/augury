@@ -35,6 +35,12 @@ def main() -> None:
     community["posts"] = community["posts"][:5]
     save_json("community.json", community)
 
+    post_url = "https://huggingface.co" + blog["allBlogs"][0]["url"]
+    page = OUT / "pages" / "hf_blog_post.html"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_bytes(fetch(post_url))
+    print("wrote", page, "from", post_url)
+
 
 if __name__ == "__main__":
     main()

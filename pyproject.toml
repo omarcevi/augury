@@ -12,12 +12,14 @@ dependencies = [
     "google-adk>=2.9.2",
     "google-genai>=2.25.0",
     "httpx>=0.28.1",
+    "markdownify>=1.2.3",
     "platformdirs>=4.11.13",
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",
     "sqlite-vec>=0.1.9",
     "textual>=8.2.8",
     "tomli-w>=1.2.0",
+    "trafilatura>=2.2.0",
 ]
 
 [project.optional-dependencies]

@@ -131,6 +131,8 @@ def scout(only: str | None) -> None:
         raise SystemExit(1)
 
 
+from augury.cli.dev import dev_group  # noqa: E402
 from augury.cli.sources import sources_group  # noqa: E402
 
 main.add_command(sources_group)
+main.add_command(dev_group)
