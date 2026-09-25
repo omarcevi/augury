@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 
 import httpx
@@ -31,6 +32,24 @@ class NullHttp:
 
     async def get(self, url, *, etag=None, last_modified=None, respect_robots=True):
         raise AssertionError(f"unexpected network call: {url}")
+
+    async def sitemaps(self, url):
+        return []
+
+
+class SlowHttp:
+    """An HttpClient whose get() blocks well past any test's window, so a caller can
+    reliably catch a fetch in flight (e.g. to exercise cancelling it) instead of racing it."""
+
+    on_wait: Callable[[str, float], None] | None = None
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def get(self, url, *, etag=None, last_modified=None, respect_robots=True):
+        self.started.set()
+        await asyncio.sleep(30)
+        raise AssertionError("SlowHttp.get() should have been cancelled before waking up")
 
     async def sitemaps(self, url):
         return []

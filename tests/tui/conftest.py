@@ -10,12 +10,13 @@ import pytest
 from textual.app import App
 from textual.pilot import Pilot
 
-from augury.core.config import Config
+from augury.core.config import Config, ScoutConfig
 from augury.core.db.open import open_db
 from augury.tui.app import AuguryApp
 from tests.helpers import NullHttp
 
 NOW = datetime(2026, 9, 25, 9, 0, tzinfo=UTC)
+QUIET = Config(scout=ScoutConfig(auto_after_hours=0))  # tests opt in to auto-scout explicitly
 
 RunBefore = Callable[[Pilot], Awaitable[None]]
 
@@ -39,7 +40,7 @@ def make_app(paths):
     def factory(now: datetime = NOW, config: Config | None = None, http=None) -> AuguryApp:
         return AuguryApp(
             conn=open_db(paths, now=now),
-            config=config or Config(),
+            config=config or QUIET,
             paths=paths,
             now=lambda: now,
             http_factory=lambda _cfg: http or NullHttp(),

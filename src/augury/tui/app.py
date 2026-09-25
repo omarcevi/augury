@@ -3,7 +3,7 @@ import sqlite3
 import traceback
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import ClassVar
 from urllib.parse import urlsplit
 
@@ -16,11 +16,14 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import ContentSwitcher, DataTable, Input, Static
 
+from augury.agents.scout import ScoutDeps, recover_interrupted_runs, run_scout
 from augury.core.clock import utcnow
 from augury.core.config import Config, HttpConfig
 from augury.core.db.items_repo import ItemsRepo
+from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.db.state_repo import StateRepo, Toggle
+from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import AppPaths
 from augury.extract.service import get_or_extract
 from augury.sources.http import HttpClient, PoliteClient
@@ -88,6 +91,7 @@ class AuguryApp(App[None]):
         Binding("b", "toggle_save", "save"),
         Binding("x", "toggle_hide", "hide"),
         Binding("o", "open_browser", "browser"),
+        Binding("r", "scout", "refresh"),
         Binding("escape", "back_to_table", "back"),
     ]
     mode: reactive[str] = reactive("NORMAL")
@@ -144,6 +148,67 @@ class AuguryApp(App[None]):
         # which is the search Input (it comes before the table) -- so a bare "/" or
         # "S" keypress would be swallowed as text instead of reaching the app bindings.
         self.query_one(ItemsTable).focus()
+        self.maybe_auto_scout()
+
+    def maybe_auto_scout(self) -> None:
+        recover_interrupted_runs(self.conn, self.paths.scout_lock_file, now=self.now())
+        hours = self.config.scout.auto_after_hours
+        if not hours:
+            return
+        last = RunsRepo(self.conn).last("scout", statuses=("ok", "partial"))
+        if last is None or self.now() - last.started_at > timedelta(hours=hours):
+            self.start_scout()
+
+    def action_scout(self) -> None:
+        self.start_scout()
+
+    @work(exclusive=True, group="scout")
+    async def start_scout(self) -> None:
+        if self.http is None:
+            return
+        self.refresh_health(scouting=True)
+        deps = ScoutDeps(
+            conn=self.conn,
+            http=self.http,
+            config=self.config,
+            lock_path=self.paths.scout_lock_file,
+            now=self.now,
+        )
+        try:
+            report = await run_scout(deps)
+        except asyncio.CancelledError:
+            # The app is shutting down (e.g. quit mid-scout): run_scout()'s own `with
+            # ScoutLock(...)` already released the lock while unwinding, and touching any
+            # widget below would raise NoMatches against a DOM that's being (or has been)
+            # torn down -- Textual then treats that as a fatal worker error. Just re-raise
+            # so the worker reports itself cancelled, not failed.
+            raise
+        except ScoutAlreadyRunning:
+            self.notify(
+                "A scout is already running (maybe the scheduled one).",
+                severity="warning",
+                markup=False,
+            )
+        except Exception as exc:  # the app stays usable with whatever is cached
+            self.notify(
+                f"Scout failed: {type(exc).__name__}: {exc}", severity="error", markup=False
+            )
+        else:
+            if report.status != "ok":
+                failed = ", ".join(sid for sid, s in report.sources.items() if s.error)
+                self.notify(
+                    f"Scout {report.status}: {failed} failed", severity="warning", markup=False
+                )
+        finally:
+            # Guard against the app shutting down mid-scout: once `is_running` is False,
+            # Textual has begun (or finished) pruning the DOM, and any widget query below
+            # would raise NoMatches instead of the CancelledError actually in flight.
+            if self.is_running:
+                self.refresh_health()
+                current = self.query_one(ItemsTable).current_row()
+                self.reload_items(keep=current.id if current else None)
+                if self.mode == "SOURCES":
+                    self.refresh_sources()
 
     def refresh_health(self, *, scouting: bool = False) -> None:
         self.query_one(HealthBar).snapshot = load_health(self.conn, self.now(), scouting=scouting)
