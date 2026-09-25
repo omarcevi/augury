@@ -2,7 +2,7 @@ import asyncio
 
 import click
 
-from augury import __version__
+from augury import __version__, init_wizard
 from augury import doctor as doctor_checks
 from augury.core.config import ConfigError, load_config
 from augury.core.db.open import open_db
@@ -54,3 +54,29 @@ def doctor(offline: bool) -> None:
     click.echo(doctor_checks.format_checks(checks))
     if doctor_checks.failed(checks):
         raise SystemExit(1)
+
+
+@main.command()
+@click.option("--yes", "-y", is_flag=True, help="Accept the defaults without asking.")
+def init(yes: bool) -> None:
+    """First-run setup: your interests, sources and (optionally) a Markdown export folder."""
+    paths = app_paths()
+    conn = open_db(paths)
+    try:
+        answers = init_wizard.defaults() if yes else init_wizard.ask()
+        existing = [p for p in (paths.config_file, paths.interests_file) if p.exists()]
+        overwrite = (
+            bool(existing)
+            and not yes
+            and click.confirm(
+                f"{', '.join(p.name for p in existing)} already "
+                f"{'exists' if len(existing) == 1 else 'exist'}. Overwrite?",
+                default=False,
+            )
+        )
+        written = init_wizard.apply(paths, answers, conn=conn, overwrite=overwrite)
+    finally:
+        conn.close()
+    for path in written:
+        click.echo(f"wrote {path}")
+    click.echo("Next: `augury scout` to fetch today's items, then `augury` to read them.")
