@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel
 
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.models import RssRecipe, Source
-from augury.core.text import slugify
+from augury.core.text import slugify, strip_control_chars, with_default_scheme
 from augury.sources.base import AdapterError
 from augury.sources.http import HttpClient, HttpError
 from augury.sources.rss import FeedInfo, inspect_feed
@@ -32,6 +32,15 @@ MAX_ALTERNATE_LINKS = 5
 _SNIFF_BYTES = 4096
 # Longest first: UTF-32 BOMs share a prefix with the UTF-16 ones.
 _BOMS = (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff", b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")
+
+
+def page_url(value: str) -> str:
+    """What someone typed as an address: a bare domain means https; only http(s) is allowed."""
+    value = with_default_scheme(value)
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError(f"only web addresses (http or https) can be added, not {value!r}")
+    return urlunsplit(parts._replace(path=parts.path or "/"))
 
 
 class ProbeAttempt(BaseModel):
@@ -92,7 +101,7 @@ def _looks_like_feed(content: bytes, content_type: str = "") -> bool:
 def build_feed_source(
     repo: SourcesRepo, info: FeedInfo, *, name: str | None = None, added_via: str
 ) -> Source:
-    display = name or info.title
+    display = " ".join(strip_control_chars(name or info.title).split())
     return Source.model_validate(
         {
             "id": repo.unique_id(slugify(display)),

@@ -28,6 +28,11 @@ def test_canonical_url_keeps_non_default_port():
     assert canonical_url("http://example.com:8080/x") == "http://example.com:8080/x"
 
 
+def test_canonical_url_of_a_bare_domain_assumes_https():
+    assert canonical_url("Example.COM/Path/") == "https://example.com/Path"
+    assert canonical_url("example.com") == "https://example.com/"
+
+
 def test_extract_arxiv_id_from_urls_and_text():
     assert extract_arxiv_id("https://arxiv.org/abs/2609.24984v2") == "2609.24984"
     assert extract_arxiv_id(None, "see https://huggingface.co/papers/2412.20138") == "2412.20138"

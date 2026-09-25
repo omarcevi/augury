@@ -1,7 +1,7 @@
 import asyncio
 import sqlite3
 import traceback
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import ClassVar
@@ -16,8 +16,8 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import ContentSwitcher, DataTable, Input, Static
 
-from augury.agents.scout import ScoutDeps, recover_interrupted_runs, run_scout
-from augury.core.clock import utcnow
+from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
+from augury.core.clock import local_day, utcnow
 from augury.core.config import Config, HttpConfig
 from augury.core.db.items_repo import ItemsRepo
 from augury.core.db.runs_repo import RunsRepo
@@ -50,7 +50,9 @@ from augury.tui.widgets.reader_pane import ReaderPane
 from augury.tui.widgets.sources_view import SourcesView
 from augury.tui.widgets.status_line import StatusLine
 
-EMPTY_MESSAGE = "Nothing here yet. Run `augury scout` to fetch today's items."
+EMPTY_SCOUTING = "Scouting… items will appear here"
+EMPTY_FILTERED = "No items match these filters — press D or v to widen"
+EMPTY_NO_ITEMS = "No items yet — press r to scout"
 _OPENABLE_SCHEMES = ("http", "https")
 # Item-list actions that must not fall through to the (hidden) ItemsTable/reader while the
 # Sources view is showing. Unlike `t` (theme vs. test fetch) and `escape` (back vs. close-add),
@@ -95,6 +97,9 @@ class AuguryApp(App[None]):
         Binding("escape", "back_to_table", "back"),
     ]
     mode: reactive[str] = reactive("NORMAL")
+    READER_DEBOUNCE_S: ClassVar[float] = 0.3  # spec §8.3
+    SEARCH_DEBOUNCE_S: ClassVar[float] = 0.15
+    HEALTH_REFRESH_S: ClassVar[float] = 60.0  # keeps "Scout: … (Nm ago)" current
 
     def __init__(
         self,
@@ -104,9 +109,11 @@ class AuguryApp(App[None]):
         paths: AppPaths,
         now: Callable[[], datetime] = utcnow,
         http_factory: Callable[[HttpConfig], HttpClient] = PoliteClient,
+        reader_debounce: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         super().__init__()
         self.conn, self.config, self.paths, self.now = conn, config, paths, now
+        self.reader_debounce = reader_debounce or (lambda: asyncio.sleep(self.READER_DEBOUNCE_S))
         self.item_filter: ItemFilter = DIGEST_PRESET
         self._search_timer: Timer | None = None
         self.http_factory = http_factory
@@ -118,6 +125,7 @@ class AuguryApp(App[None]):
         self._scroll_frac = 0.0
         self._scroll_max = -1.0
         self._extracting: str | None = None
+        self.scouting = False
 
     def compose(self) -> ComposeResult:
         yield HealthBar(id="health")
@@ -126,7 +134,7 @@ class AuguryApp(App[None]):
             with Horizontal(id="main"):
                 with Container(id="items-pane"):
                     yield ItemsTable(id="items")
-                    yield Static(EMPTY_MESSAGE, id="empty")
+                    yield Static(id="empty")
                 yield ReaderPane(id="reader")
             yield SourcesView(id="sources-view")
         yield StatusLine(id="status")
@@ -148,7 +156,12 @@ class AuguryApp(App[None]):
         # which is the search Input (it comes before the table) -- so a bare "/" or
         # "S" keypress would be swallowed as text instead of reaching the app bindings.
         self.query_one(ItemsTable).focus()
+        self.set_interval(self.HEALTH_REFRESH_S, self._tick_health)
         self.maybe_auto_scout()
+
+    def _tick_health(self) -> None:
+        if self.is_running:
+            self.refresh_health()
 
     def maybe_auto_scout(self) -> None:
         recover_interrupted_runs(self.conn, self.paths.scout_lock_file, now=self.now())
@@ -156,23 +169,34 @@ class AuguryApp(App[None]):
         if not hours:
             return
         last = RunsRepo(self.conn).last("scout", statuses=("ok", "partial"))
-        if last is None or self.now() - last.started_at > timedelta(hours=hours):
+        now = self.now()
+        if (
+            last is None
+            or now - last.started_at > timedelta(hours=hours)
+            or local_day(last.started_at) < local_day(now)  # a new day: today's view is empty
+        ):
             self.start_scout()
 
     def action_scout(self) -> None:
+        # Not exclusive=True: that would cancel the running scout instead of keeping it.
+        if any(w.group == "scout" and not w.is_finished for w in self.workers):
+            self.notify("Already scouting…", markup=False)
+            return
         self.start_scout()
 
-    @work(exclusive=True, group="scout")
+    @work(group="scout")
     async def start_scout(self) -> None:
         if self.http is None:
             return
-        self.refresh_health(scouting=True)
+        self.scouting = True
+        self.refresh_after_scout()
         deps = ScoutDeps(
             conn=self.conn,
             http=self.http,
             config=self.config,
             lock_path=self.paths.scout_lock_file,
             now=self.now,
+            on_stored=self._on_scout_stored,
         )
         try:
             report = await run_scout(deps)
@@ -199,19 +223,32 @@ class AuguryApp(App[None]):
                 self.notify(
                     f"Scout {report.status}: {failed} failed", severity="warning", markup=False
                 )
+            if report.enrich_error:
+                self.notify(
+                    f"Enrichment failed: {report.enrich_error}", severity="warning", markup=False
+                )
         finally:
+            self.scouting = False
             # Guard against the app shutting down mid-scout: once `is_running` is False,
             # Textual has begun (or finished) pruning the DOM, and any widget query below
             # would raise NoMatches instead of the CancelledError actually in flight.
             if self.is_running:
-                self.refresh_health()
-                current = self.query_one(ItemsTable).current_row()
-                self.reload_items(keep=current.id if current else None)
-                if self.mode == "SOURCES":
-                    self.refresh_sources()
+                self.refresh_after_scout()
 
-    def refresh_health(self, *, scouting: bool = False) -> None:
-        self.query_one(HealthBar).snapshot = load_health(self.conn, self.now(), scouting=scouting)
+    def _on_scout_stored(self, _report: ScoutReport) -> None:
+        if self.is_running:  # the items are in; enrichment can take a while longer
+            self.refresh_after_scout()
+
+    def refresh_after_scout(self) -> None:
+        self.refresh_health()
+        current = self.query_one(ItemsTable).current_row()
+        self.reload_items(keep=current.id if current else None)
+        if self.mode == "SOURCES":
+            self.refresh_sources()
+
+    def refresh_health(self) -> None:
+        snapshot = load_health(self.conn, self.now(), scouting=self.scouting)
+        self.query_one(HealthBar).snapshot = snapshot
 
     def refresh_colors(self) -> None:
         """Widgets that bake theme colors into Rich text redraw after a theme change."""
@@ -228,7 +265,12 @@ class AuguryApp(App[None]):
         table = self.query_one(ItemsTable)
         table.show(rows, self.now(), self.get_css_variables())
         self.query_one("#items-pane").border_title = f"Items ({len(rows)}/{total})"
-        self.query_one("#empty").display = not rows
+        empty = self.query_one("#empty", Static)
+        empty.display = not rows
+        if not rows:
+            empty.update(
+                EMPTY_SCOUTING if self.scouting else EMPTY_FILTERED if total else EMPTY_NO_ITEMS
+            )
         table.display = bool(rows)
         if keep := keep or self.reading_id:
             table.select_key(keep)
@@ -253,7 +295,7 @@ class AuguryApp(App[None]):
         self._reanchor()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        if event.data_table.id != "items":
+        if event.data_table.id != "items" or not self.is_running:  # late, after quitting
             return
         row = self.query_one(ItemsTable).rows_by_key.get(str(event.row_key.value))
         status = self.query_one(StatusLine)
@@ -284,7 +326,7 @@ class AuguryApp(App[None]):
 
     @work(exclusive=True, group="reader")
     async def load_content(self, item_id: str) -> None:
-        await asyncio.sleep(0.3)  # debounce: pressing Enter again cancels this before any request
+        await self.reader_debounce()  # pressing Enter again cancels this before any request
         reader = self.query_one(ReaderPane)
         item = ItemsRepo(self.conn).get(item_id)
         if item is None or self.http is None or self.reading_id != item_id:
@@ -297,6 +339,7 @@ class AuguryApp(App[None]):
         # Awaited: Markdown resets its cached table of contents when an update starts, so an
         # update still running when the body arrives would cache a contents list without it.
         await reader.show_summary(item)
+        self._reanchor()  # the summary may be all there is if extraction fails
         self._extracting = item_id
         try:
             content = await get_or_extract(self.conn, self.http, item, now=self.now())
@@ -331,6 +374,11 @@ class AuguryApp(App[None]):
     def _refresh_row(self, item_id: str) -> None:
         if (row := get_item_row(self.conn, item_id, now=self.now())) is not None:
             self.query_one(ItemsTable).update_row(row, self.now(), self.get_css_variables())
+
+    @property
+    def reader_settled(self) -> bool:
+        """The open item is laid out and at its reading position (what tests wait for)."""
+        return self._scroll_max == self.query_one(ReaderPane).viewer.max_scroll_y
 
     def _on_reader_relayout(self, _size: Size) -> None:
         self._reanchor()  # the body rewrapped: zen, contents, a resize or a new document
@@ -381,7 +429,7 @@ class AuguryApp(App[None]):
         return not (action in _ITEMS_ONLY_ACTIONS and self.mode == "SOURCES")
 
     def action_help(self) -> None:
-        self.push_screen(HelpOverlay())
+        self.push_screen(HelpOverlay(self.mode))
 
     def action_cycle_theme(self) -> None:
         names = [name for name in THEMES if name in self.available_themes]
@@ -460,8 +508,12 @@ class AuguryApp(App[None]):
         if self._search_timer is not None:
             self._search_timer.stop()
         value = event.value
+        if self.SEARCH_DEBOUNCE_S <= 0:  # set_timer(0) divides by zero
+            self.apply_filter(replace(self.item_filter, search=value))
+            return
         self._search_timer = self.set_timer(
-            0.15, lambda: self.apply_filter(replace(self.item_filter, search=value))
+            self.SEARCH_DEBOUNCE_S,
+            lambda: self.apply_filter(replace(self.item_filter, search=value)),
         )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -516,9 +568,12 @@ class AuguryApp(App[None]):
     def _toggle(self, field: Toggle) -> None:
         if (row := self._target()) is None:
             return
-        StateRepo(self.conn).toggle(row.id, field, now=self.now())
+        on = StateRepo(self.conn).toggle(row.id, field, now=self.now())
         if self.reading_id is not None:
             self._refresh_row(row.id)  # in place: a re-query would drop the open item from Unread
+            if field == "hidden":  # the open item stays listed, so nothing else shows it
+                message = "Hidden — it won't show in Unread" if on else "No longer hidden"
+                self.notify(message, markup=False)
         else:
             self.reload_items(keep=row.id)
 

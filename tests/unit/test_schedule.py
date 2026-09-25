@@ -1,10 +1,13 @@
 import plistlib
 import shlex
+import subprocess
 
 import click
 import pytest
+from click.testing import CliRunner
 
 from augury import schedule
+from augury.cli import main
 
 PROGRAM = ["/usr/local/bin/augury", "scout"]
 
@@ -51,6 +54,49 @@ def test_install_on_linux_enables_a_user_timer(tmp_path):
     )
     assert (tmp_path / ".config/systemd/user/augury-scout.timer").exists()
     assert ["systemctl", "--user", "enable", "--now", "augury-scout.timer"] in calls
+
+
+def _failing(command: str, stderr: bytes):
+    def run(cmd: list[str]) -> subprocess.CompletedProcess[bytes]:
+        code = 5 if command in cmd else 0
+        return subprocess.CompletedProcess(cmd, code, b"", stderr if code else b"")
+
+    return run
+
+
+def test_a_failed_launchctl_bootstrap_is_reported(tmp_path):
+    result = schedule.install(
+        hour=7,
+        minute=0,
+        log_dir=tmp_path,
+        platform="darwin",
+        home=tmp_path,
+        run=_failing("bootstrap", b"Bootstrap failed: 5: Input/output error"),
+        program=PROGRAM,
+    )
+    assert not result.ok and "launchctl bootstrap" in result.message
+    assert "Input/output error" in result.message and "Daily scout at" not in result.message
+
+
+def test_a_failed_systemctl_enable_is_reported(tmp_path):
+    result = schedule.install(
+        hour=7,
+        minute=0,
+        log_dir=tmp_path,
+        platform="linux",
+        home=tmp_path,
+        run=_failing("enable", b"Failed to connect to bus"),
+        program=PROGRAM,
+        which=lambda _: "/usr/bin/systemctl",
+    )
+    assert not result.ok and "enable" in result.message and "Failed to connect" in result.message
+
+
+def test_schedule_install_exits_non_zero_when_it_failed(paths, monkeypatch):
+    failed = schedule.ScheduleResult("launchctl bootstrap failed (exit 5)", ok=False)
+    monkeypatch.setattr(schedule, "install", lambda **kwargs: failed)
+    result = CliRunner().invoke(main, ["schedule", "install"])
+    assert result.exit_code == 1 and "launchctl bootstrap failed" in result.output
 
 
 def test_elsewhere_prints_a_cron_line(tmp_path):

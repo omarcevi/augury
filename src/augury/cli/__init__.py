@@ -7,6 +7,7 @@ from augury import __version__, init_wizard
 from augury import doctor as doctor_checks
 from augury import schedule as scheduling
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
+from augury.cli.output import safe
 from augury.core.clock import utcnow
 from augury.core.config import ConfigError, load_config
 from augury.core.db.open import open_db
@@ -56,7 +57,7 @@ def doctor(offline: bool) -> None:
                 return await doctor_checks.check_network(http)
 
         checks += asyncio.run(network())
-    click.echo(doctor_checks.format_checks(checks))
+    click.echo(safe(doctor_checks.format_checks(checks)))
     if doctor_checks.failed(checks):
         raise SystemExit(1)
 
@@ -91,15 +92,18 @@ def format_report(report: ScoutReport) -> str:
     lines = [
         f"Scout {report.status} · {report.new_items} new"
         + (f" · {report.enriched} enriched" if report.enriched else "")
+        + (" · enrichment failed" if report.enrich_error else "")
     ]
     for source_id, s in sorted(report.sources.items()):
         if s.error:
-            lines.append(f"  ✗ {source_id:<16} {s.error}")
+            lines.append(f"  ✗ {source_id:<16} {safe(s.error)}")
         elif s.not_modified:
             lines.append(f"  ✓ {source_id:<16} not modified")
         else:
             extra = f" · {s.skipped} skipped" if s.skipped else ""
             lines.append(f"  ✓ {source_id:<16} {s.fetched} fetched · {s.new} new{extra}")
+    if report.enrich_error:
+        lines.append(f"  ! {'enrichment':<16} {safe(report.enrich_error)}")
     return "\n".join(lines)
 
 
@@ -125,7 +129,7 @@ def scout(only: str | None) -> None:
     try:
         report = asyncio.run(go())
     except (ScoutAlreadyRunning, ValueError) as e:
-        raise click.ClickException(str(e)) from e
+        raise click.ClickException(safe(e)) from e
     finally:
         conn.close()
     click.echo(format_report(report))
@@ -150,11 +154,12 @@ def schedule_install(at: str) -> None:
     # shell (launchd/systemd/cron all start with a near-empty environment), so without this
     # a scheduled scout would silently use the default data dir instead of the user's.
     augury_home = os.environ.get(HOME_ENV)
-    click.echo(
-        scheduling.install(
-            hour=hour, minute=minute, log_dir=paths.log_dir, augury_home=augury_home
-        ).message
+    result = scheduling.install(
+        hour=hour, minute=minute, log_dir=paths.log_dir, augury_home=augury_home
     )
+    if not result.ok:
+        raise click.ClickException(result.message)
+    click.echo(result.message)
 
 
 @schedule_group.command("uninstall")

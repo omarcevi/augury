@@ -4,6 +4,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # keeps \t and \n; drops \r
+_SCHEME = re.compile(r"[a-z][a-z0-9+.-]*:(?!\d)", re.IGNORECASE)  # "mailto:", not "host:8080"
 _TRACKING = {"fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "ref", "ref_src", "igshid"}
 _ARXIV = re.compile(
     r"(?:arxiv\.org/(?:abs|pdf|html)/|huggingface\.co/papers/|\barxiv:\s*)(\d{4}\.\d{4,5})(?:v\d+)?",
@@ -17,9 +18,17 @@ def strip_control_chars(value: str) -> str:
     return _CONTROL.sub("", _ANSI.sub("", value.replace("\r\n", "\n")))
 
 
+def with_default_scheme(url: str) -> str:
+    """A bare "example.com/path" gets https://; anything else is returned as it is."""
+    url = url.strip()
+    if "//" in url or url.startswith("/") or _SCHEME.match(url):
+        return url
+    return f"https://{url}"
+
+
 def canonical_url(url: str) -> str:
     try:
-        parts = urlsplit(url.strip())
+        parts = urlsplit(with_default_scheme(url))
         port = parts.port
     except ValueError:
         return url.strip()

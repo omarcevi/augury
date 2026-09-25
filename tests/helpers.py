@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 
@@ -58,10 +59,11 @@ class SlowHttp:
 class CountingHttp:
     """Serves canned pages and records each request, so tests can prove when the network is used."""
 
+    on_wait: Callable[[str, float], None] | None = None
+
     def __init__(self, pages: dict[str, bytes] | None = None) -> None:
         self.pages = pages or {}
         self.calls: list[str] = []
-        self.on_wait = None
 
     async def get(self, url, *, etag=None, last_modified=None, respect_robots=True):
         self.calls.append(url)
@@ -71,3 +73,35 @@ class CountingHttp:
 
     async def sitemaps(self, url):
         return []
+
+
+HF_FIXTURES = Path(__file__).parent / "fixtures" / "hf"
+HF_API_PAGES = {
+    "https://huggingface.co/api/daily_papers?sort=trending&limit=50": "daily_papers.json",
+    "https://huggingface.co/api/blog": "blog.json",
+    "https://huggingface.co/api/blog/community?sort=trending": "community.json",
+}
+
+
+class HfHttp(CountingHttp):
+    """Serves the captured Hugging Face API responses (any other page 404s). A request waits
+    while its gate is cleared, so a test can catch a scout mid-fetch or mid-enrichment."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            {url: (HF_FIXTURES / name).read_bytes() for url, name in HF_API_PAGES.items()}
+        )
+        self.api_gate, self.page_gate = asyncio.Event(), asyncio.Event()
+        self.api_gate.set()
+        self.page_gate.set()
+        self.api_started, self.page_started = asyncio.Event(), asyncio.Event()
+
+    async def get(self, url, *, etag=None, last_modified=None, respect_robots=True):
+        started, gate = (
+            (self.api_started, self.api_gate)
+            if url in self.pages
+            else (self.page_started, self.page_gate)
+        )
+        started.set()
+        await gate.wait()
+        return await super().get(url)

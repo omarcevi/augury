@@ -1,15 +1,18 @@
+import threading
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from click.testing import CliRunner
 
+from augury import extract
 from augury.agents.normalize import store_items
 from augury.cli import main
 from augury.core.db.contents_repo import ContentsRepo
 from augury.core.db.items_repo import ItemsRepo
 from augury.core.db.open import open_db
 from augury.core.models import Content, Item, RawItem
+from augury.extract.pdf import pdf_to_markdown
 from augury.extract.service import EXTRACTOR_VERSION, get_or_extract
 from augury.sources.http import PoliteClient
 from tests.helpers import FakeTime, allow_robots
@@ -136,6 +139,27 @@ async def test_paper_without_html_falls_back_to_pdf(paths, http, respx_mock):
     )
     content = await get_or_extract(conn, http, item, now=NOW)
     assert content.status == "ok" and content.extractor == "pdf"
+
+
+async def test_pdf_parsing_runs_off_the_event_loop(paths, http, respx_mock, monkeypatch):
+    threads: list[threading.Thread] = []
+
+    def record(content: bytes) -> str:
+        threads.append(threading.current_thread())
+        return pdf_to_markdown(content)
+
+    monkeypatch.setattr(extract, "pdf_to_markdown", record)
+    conn = open_db(paths, now=NOW)
+    item = seed_paper(conn)
+    allow_robots(respx_mock, "https://arxiv.org")
+    respx_mock.get("https://arxiv.org/html/2609.00001").mock(return_value=httpx.Response(404))
+    respx_mock.get("https://arxiv.org/pdf/2609.00001").mock(
+        return_value=httpx.Response(
+            200, content=make_pdf(["Speculative decoding verifies draft tokens in parallel."] * 10)
+        )
+    )
+    assert (await get_or_extract(conn, http, item, now=NOW)).extractor == "pdf"
+    assert threads and threads[0] is not threading.main_thread()  # the TUI stays responsive
 
 
 async def test_thin_arxiv_html_falls_back_to_pdf(paths, http, respx_mock):

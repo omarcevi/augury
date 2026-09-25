@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from augury.agents.normalize import normalize
 from augury.core.models import FetchState, RssRecipe, Source
 from augury.sources.base import AdapterError
 from augury.sources.http import PoliteClient
@@ -84,3 +85,24 @@ async def test_inspect_feed_summarizes(http, respx_mock):
     assert (info.title, info.entries, info.homepage) == ("Example Blog", 3, "https://example.com/")
     assert info.sample_titles == ["First & best", "Second", "Third, undated"]
     assert info.newest is not None and info.newest.day == 24
+
+
+RELATIVE_FEED = (
+    b'<?xml version="1.0"?><rss version="2.0"><channel><title>t</title><link>/</link>'
+    b"<item><title>About</title><link>/about</link></item>"
+    b"<item><title>Post</title><link>posts/1</link></item></channel></rss>"
+)
+
+
+async def test_relative_entry_links_resolve_against_the_feed(http, respx_mock):
+    ids: list[str] = []
+    for origin in ("https://a.example", "https://b.example"):
+        feed_url = f"{origin}/blog/feed.xml"
+        allow_robots(respx_mock, origin)
+        respx_mock.get(feed_url).mock(return_value=httpx.Response(200, content=RELATIVE_FEED))
+        source = Source(id="s", name="S", origin="user", recipe=RssRecipe(feed_url=feed_url))
+        about, post = (await RssAdapter().fetch(source, FetchState(), http)).items
+        assert (about.url, post.url) == (f"{origin}/about", f"{origin}/blog/posts/1")
+        ids.append(normalize(about).id)
+        assert (await inspect_feed(feed_url, http)).homepage == f"{origin}/"
+    assert ids[0] != ids[1]  # two blogs' /about pages stay two items

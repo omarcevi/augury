@@ -51,6 +51,8 @@ class ScoutDeps:
     lock_path: Path
     adapters: Mapping[str, Adapter] = field(default_factory=lambda: ADAPTERS)
     now: Callable[[], datetime] = utcnow
+    # Called on the event loop as soon as items are stored, before the slower enrichment.
+    on_stored: Callable[[ScoutReport], None] | None = None
 
 
 @dataclass
@@ -109,17 +111,20 @@ def build_scout_workflow(
             new_items=sum(s.new for s in stats.values()),
         )
         sink.append(report)
+        if deps.on_stored is not None:
+            deps.on_stored(report)
         return report
 
     async def enrich(node_input: ScoutReport) -> ScoutReport:
         try:
-            count = await enrich_new_articles(
+            result = await enrich_new_articles(
                 deps.conn, deps.http, now=deps.now(), limit=deps.config.scout.enrich_max_per_run
             )
         except Exception as exc:  # best effort: the items are already stored
-            report = node_input.model_copy(update={"enrich_error": f"{type(exc).__name__}: {exc}"})
+            update = {"enrich_error": f"{type(exc).__name__}: {exc}"}
         else:
-            report = node_input.model_copy(update={"enriched": count})
+            update = {"enriched": result.enriched, "enrich_error": result.error}
+        report = node_input.model_copy(update=update)
         sink.append(report)
         return report
 
@@ -162,11 +167,16 @@ async def run_scout(deps: ScoutDeps, *, only: str | None = None) -> ScoutReport:
         except Exception as exc:
             runs.finish(run_id, "failed", now=deps.now(), error=f"{type(exc).__name__}: {exc}")
             raise
+        except BaseException:  # cancelled (e.g. the TUI quit) or Ctrl-C: never left "running"
+            runs.finish(run_id, "interrupted", now=deps.now())
+            raise
         if not sink:
             runs.finish(run_id, "failed", now=deps.now(), error="the workflow produced no report")
             raise RuntimeError("scout workflow finished without a report")
         report = sink[-1]
         errors = [f"{sid}: {s.error}" for sid, s in report.sources.items() if s.error]
+        if report.enrich_error:
+            errors.append(f"enrich: {report.enrich_error}")
         runs.finish(
             run_id,
             report.status,

@@ -8,7 +8,7 @@ from textual.widgets import DataTable, Input, OptionList
 
 from augury.core.db.sources_repo import BuiltinSourceError, SourceExists, SourcesRepo
 from augury.core.models import FetchState
-from augury.sources.probe import build_feed_source, probe_url
+from augury.sources.probe import build_feed_source, page_url, probe_url
 from augury.sources.registry import adapter_for
 from augury.tui.widgets.add_source_panel import AddSourcePanel
 from augury.tui.widgets.confirm_modal import ConfirmModal
@@ -25,7 +25,7 @@ class SourcesView(Horizontal):
         Binding("t", "test_fetch", "test fetch"),  # overrides the app's theme key while here
         Binding("e", "toggle_enabled", "enable/disable"),
         Binding("d", "remove", "remove"),
-        Binding("escape", "close_add", "back"),
+        Binding("escape", "back", "back"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -116,6 +116,12 @@ class SourcesView(Horizontal):
         panel.display = True
         panel.reset()
 
+    def action_back(self) -> None:
+        if self.query_one(AddSourcePanel).display:
+            self.action_close_add()
+        else:
+            self.augury_app.action_show_items()
+
     def action_close_add(self) -> None:
         self.query_one(AddSourcePanel).display = False
         self.query_one(SourceDetail).display = True
@@ -129,6 +135,11 @@ class SourcesView(Horizontal):
     @work(exclusive=True, group="sources")
     async def _probe(self, url: str) -> None:
         panel = self.query_one(AddSourcePanel)
+        try:
+            url = page_url(url)
+        except ValueError as exc:
+            panel.show_status(str(exc))
+            return
         panel.show_status("Looking for a feed…")
         app = self.augury_app
         if app.http is None:

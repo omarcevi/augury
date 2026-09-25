@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
@@ -95,3 +96,28 @@ def test_interrupted_runs_are_recovered_only_when_no_scout_is_live(paths):
     with ScoutLock(paths.scout_lock_file):
         assert recover_interrupted_runs(conn, paths.scout_lock_file, now=NOW) == 0
     assert recover_interrupted_runs(conn, paths.scout_lock_file, now=NOW) == 1
+
+
+class BlockingAdapter:
+    recipe_type: ClassVar[str] = "fake"
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def fetch(self, source: Source, state: FetchState, http: HttpClient) -> FetchResult:
+        self.started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+async def test_a_cancelled_scout_is_recorded_as_interrupted(paths):
+    blocking = BlockingAdapter()
+    d = deps(paths, OK_ADAPTERS | {"hf_blog": blocking})
+    task = asyncio.create_task(run_scout(d))
+    await asyncio.wait_for(blocking.started.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert RunsRepo(d.conn).last("scout").status == "interrupted"  # type: ignore[union-attr]
+    with ScoutLock(paths.scout_lock_file):  # released too
+        pass

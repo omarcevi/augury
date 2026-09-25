@@ -2,6 +2,7 @@ import asyncio
 
 import click
 
+from augury.cli.output import safe
 from augury.core.clock import utcnow
 from augury.core.config import ConfigError, load_config
 from augury.core.db.items_repo import ItemsRepo
@@ -42,7 +43,7 @@ def extract_cmd(item_id: str, refresh: bool) -> None:
         conn.close()
     error = f" · {content.error}" if content.error else ""
     summary = f"[{content.status}] {content.extractor} · {content.word_count} words{error}"
-    click.echo(summary, err=True)
+    click.echo(safe(summary), err=True)
     if content.status != "ok":
         raise SystemExit(1)
-    click.echo(content.body_md)
+    click.echo(safe(content.body_md))

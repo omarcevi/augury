@@ -2,11 +2,16 @@ from rich.text import Text
 from textual.reactive import reactive
 from textual.widget import Widget
 
-from augury.tui.keymap import KEYMAP
+from augury.tui.keymap import KEYMAP, KeyHint
 
 # These hints must never scroll off the hints row, whatever width is available ("back" is
-# the only way out of the full-screen reader on a narrow terminal).
-_ESSENTIAL_LABELS = ("help", "quit", "back")
+# the only way out of the full-screen reader on a narrow terminal, "items" out of Sources).
+_ESSENTIAL_LABELS = ("help", "quit", "back", "items")
+
+
+def essentials_first(hints: tuple[KeyHint, ...]) -> list[KeyHint]:
+    essential = [h for h in hints if h.label in _ESSENTIAL_LABELS]
+    return essential + [h for h in hints if h.label not in _ESSENTIAL_LABELS]
 
 
 class StatusLine(Widget):
@@ -29,13 +34,10 @@ class StatusLine(Widget):
 
     def _hints(self) -> Text:
         palette = self.app.get_css_variables()
-        hints = KEYMAP.get(self.mode, ())
-        essential = [h for h in hints if h.label in _ESSENTIAL_LABELS]
-        rest = [h for h in hints if h.label not in _ESSENTIAL_LABELS]
         row = Text()
         row.append(f" {self.mode} ", style=f"bold reverse {palette.get('accent', '')}")
         # Essentials come right after the mode badge so a narrow terminal truncates the
         # (less critical) rest of the hints first, never help/quit.
-        for hint in (*essential, *rest):
+        for hint in essentials_first(KEYMAP.get(self.mode, ())):
             row.append(f"  {hint.key}:{hint.label}")
         return row

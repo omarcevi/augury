@@ -35,16 +35,53 @@ def utc_timezone(monkeypatch):
     time.tzset()
 
 
+async def instant() -> None:
+    await asyncio.sleep(0)
+
+
+class Gate:
+    """A reader debounce that holds until opened, so a test can act inside the window."""
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+
+    async def __call__(self) -> None:
+        await self._event.wait()
+
+    def open(self) -> None:
+        self._event.set()
+
+    def close(self) -> None:
+        self._event.clear()
+
+
+async def until(pilot: Pilot, predicate: Callable[[], object], timeout: float = 5.0) -> None:
+    """Pause until `predicate()` holds; the timeout only bounds a failure."""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"still false after {timeout}s: {predicate}")
+        await pilot.pause()
+
+
 @pytest.fixture
 def make_app(paths):
-    def factory(now: datetime = NOW, config: Config | None = None, http=None) -> AuguryApp:
-        return AuguryApp(
+    def factory(
+        now: datetime = NOW,
+        config: Config | None = None,
+        http=None,
+        debounce: Callable[[], Awaitable[None]] | None = None,
+    ) -> AuguryApp:
+        app = AuguryApp(
             conn=open_db(paths, now=now),
             config=config or QUIET,
             paths=paths,
             now=lambda: now,
             http_factory=lambda _cfg: http or NullHttp(),
+            reader_debounce=debounce or instant,
         )
+        app.SEARCH_DEBOUNCE_S = 0  # type: ignore[misc]  # this app only, not the class
+        return app
 
     return factory
 

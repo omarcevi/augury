@@ -15,16 +15,23 @@ from augury.core.models import (
     RssRecipe,
     Source,
 )
+from augury.core.text import strip_control_chars
 from augury.sources.base import AdapterError, map_entries
-from augury.sources.http import HttpClient
+from augury.sources.http import HttpClient, Response
 
 
 def plain_text(fragment: str) -> str:
-    if "<" not in fragment:
-        return " ".join(fragment.split())
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MarkupResemblesLocatorWarning)
-        return " ".join(BeautifulSoup(fragment, "html.parser").get_text(" ").split())
+    # feedparser's loose parser turns "&#27;" into a raw ESC, so strip here, not only later.
+    if "<" in fragment:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MarkupResemblesLocatorWarning)
+            fragment = BeautifulSoup(fragment, "html.parser").get_text(" ")
+    return " ".join(strip_control_chars(fragment).split())
+
+
+def parse_feed(resp: Response) -> Any:
+    # Bytes, so feedparser honours the XML encoding; the URL resolves relative links.
+    return feedparser.parse(resp.content, response_headers={"content-location": resp.url})
 
 
 def entry_datetime(entry: Any) -> datetime | None:
@@ -57,7 +64,7 @@ class RssAdapter:
         )
         if resp.not_modified:
             return FetchResult(items=[], state=state, not_modified=True)
-        feed = feedparser.parse(resp.content)  # bytes, so feedparser honours the XML encoding
+        feed = parse_feed(resp)
         items, skipped = map_entries(source.id, list(feed.entries), feed_entry_to_raw)
         new_state = FetchState(
             etag=resp.headers.get("etag"), last_modified=resp.headers.get("last-modified")
@@ -76,7 +83,7 @@ class FeedInfo(BaseModel):
 
 async def inspect_feed(url: str, http: HttpClient) -> FeedInfo:
     resp = await http.get(url)
-    feed = feedparser.parse(resp.content)
+    feed = parse_feed(resp)
     usable = [e for e in feed.entries if e.get("title") and e.get("link")]
     if not usable:
         raise AdapterError(f"{url} is not a feed with entries")

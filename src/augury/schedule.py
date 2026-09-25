@@ -25,6 +25,17 @@ def _run(cmd: list[str]) -> object:
 class ScheduleResult:
     message: str
     installed: list[Path] = field(default_factory=list)
+    ok: bool = True
+
+
+def _failure(result: object) -> str | None:
+    """What went wrong, or None. An injected test runner may return None: that's success."""
+    code = getattr(result, "returncode", 0)
+    if not code:
+        return None
+    stderr = getattr(result, "stderr", b"") or b""
+    detail = stderr.decode(errors="replace") if isinstance(stderr, bytes) else str(stderr)
+    return f"exit {code}: {detail.strip()}" if detail.strip() else f"exit {code}"
 
 
 def parse_time(value: str) -> tuple[int, int]:
@@ -137,7 +148,10 @@ def install(
         )
         domain = f"gui/{os.getuid()}"
         run(["launchctl", "bootout", domain, str(path)])  # fine if it wasn't loaded yet
-        run(["launchctl", "bootstrap", domain, str(path)])
+        if error := _failure(run(["launchctl", "bootstrap", domain, str(path)])):
+            return ScheduleResult(
+                f"Wrote {path}, but `launchctl bootstrap` failed ({error}).", [path], ok=False
+            )
         return ScheduleResult(
             f"Daily scout at {hour:02d}:{minute:02d} via launchd "
             "(it runs on wake if the Mac was asleep).",
@@ -151,8 +165,16 @@ def install(
         timer_path = unit_dir / f"{SYSTEMD_NAME}.timer"
         service_path.write_text(service)
         timer_path.write_text(timer)
-        run(["systemctl", "--user", "daemon-reload"])
-        run(["systemctl", "--user", "enable", "--now", f"{SYSTEMD_NAME}.timer"])
+        for cmd in (
+            ["systemctl", "--user", "daemon-reload"],
+            ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_NAME}.timer"],
+        ):
+            if error := _failure(run(cmd)):
+                return ScheduleResult(
+                    f"Wrote {timer_path}, but `{shlex.join(cmd)}` failed ({error}).",
+                    [service_path, timer_path],
+                    ok=False,
+                )
         return ScheduleResult(
             f"Daily scout at {hour:02d}:{minute:02d} via a systemd user timer "
             "(Persistent=true catches up after downtime).",

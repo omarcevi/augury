@@ -32,3 +32,13 @@ def test_doctor_network_check(paths, respx_mock):
     )
     result = CliRunner().invoke(main, ["doctor"])
     assert "✓ network" in result.output
+
+
+def test_doctor_offline_says_the_network_is_unreachable(paths, respx_mock):
+    paths.config_file.write_text("[http]\nmin_interval_s = 0\nretries = 0\n")
+    respx_mock.get("https://huggingface.co/robots.txt").mock(side_effect=httpx.ConnectError("x"))
+    result = CliRunner().invoke(main, ["doctor"])
+    assert result.exit_code == 1
+    line = next(line for line in result.output.splitlines() if "network" in line)
+    assert line.startswith("✗ network") and "network unreachable" in line
+    assert "robots" not in line.split("unreachable")[0] and "disallowed" not in line

@@ -1,14 +1,16 @@
-from textual.widgets import ContentSwitcher, Input
+from textual.widgets import ContentSwitcher, Input, Static
 
 from augury.agents.normalize import store_items
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.db.state_repo import StateRepo
 from augury.core.models import RawItem, RssRecipe, Source
+from augury.tui.widgets.add_source_panel import AddSourcePanel
 from augury.tui.widgets.confirm_modal import ConfirmModal
 from augury.tui.widgets.items_table import ItemsTable
 from augury.tui.widgets.picker_modal import ChoiceModal, PickerModal
 from augury.tui.widgets.source_detail import SourceDetail
 from augury.tui.widgets.sources_table import SourcesTable
+from augury.tui.widgets.status_line import StatusLine
 from tests.adapters.test_probe import ORIGIN as BLOG
 from tests.adapters.test_probe import PAGE_WITH_LINK
 from tests.adapters.test_rss import FEED
@@ -43,6 +45,25 @@ async def test_2_shows_sources_and_1_goes_back(make_app):
         assert app.query_one(ContentSwitcher).current == "main"
 
 
+async def test_escape_goes_back_to_items_unless_the_add_panel_is_open(make_app):
+    app = make_app()
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("2", "plus", "escape")
+        assert app.query_one(ContentSwitcher).current == "sources-view"
+        assert app.query_one(AddSourcePanel).display is False
+        await pilot.press("escape")
+        assert app.query_one(ContentSwitcher).current == "main" and app.mode == "NORMAL"
+
+
+async def test_the_way_back_is_pinned_at_80_columns(make_app):
+    app = make_app()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("2")
+        await pilot.pause()
+        hints_row = app.query_one(StatusLine).render_line(1).text
+        assert all(hint in hints_row for hint in ("1:items", "esc:back", "?:help", "q:quit"))
+
+
 async def test_add_a_blog_by_url_inside_the_tui(make_app):
     app = make_app(http=CountingHttp({f"{BLOG}/": PAGE_WITH_LINK, FEED_URL: FEED}))
     async with app.run_test(size=(160, 40)) as pilot:
@@ -55,6 +76,30 @@ async def test_add_a_blog_by_url_inside_the_tui(make_app):
         await pilot.pause()
         assert SourcesRepo(app.conn).get("example-blog") is not None
         assert app.query_one(SourcesTable).row_count == 4
+
+
+async def test_a_bare_domain_is_probed_over_https_inside_the_tui(make_app):
+    http = CountingHttp({f"{BLOG}/": PAGE_WITH_LINK, FEED_URL: FEED})
+    app = make_app(http=http)
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("2", "plus")
+        app.query_one("#add-url", Input).value = BLOG.removeprefix("https://")
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        assert http.calls[0] == f"{BLOG}/"
+        assert app.query_one(AddSourcePanel).candidates
+
+
+async def test_a_non_web_address_is_refused_inside_the_tui(make_app):
+    app = make_app(http=CountingHttp())
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("2", "plus")
+        app.query_one("#add-url", Input).value = "javascript:alert(1)"
+        await pilot.press("enter")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert "http" in str(app.query_one("#add-status", Static).render())
+        assert app.http.calls == []  # type: ignore[union-attr]
 
 
 async def test_e_toggles_enabled(make_app):
@@ -161,8 +206,6 @@ async def test_switching_to_sources_and_back_keeps_the_reader_open(make_app):
         assert app.reading_id == item_id  # intact, not discarded
         assert app.mode == "READ"
         assert app.screen.has_class("reading")
-
-        await pilot.pause(0.4)
         await app.workers.wait_for_complete()
 
 
@@ -184,6 +227,4 @@ async def test_removing_the_open_items_source_closes_the_reader_gracefully(make_
         assert app.reading_id is None  # closed gracefully, no crash
         assert not app.screen.has_class("reading")
         assert app.query_one(ItemsTable).row_count == 0  # its item is gone too; the view refreshed
-
-        await pilot.pause(0.4)
         await app.workers.wait_for_complete()

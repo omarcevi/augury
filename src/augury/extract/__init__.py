@@ -1,3 +1,5 @@
+import asyncio
+
 from augury.core.models import Item
 from augury.extract.arxiv_html import arxiv_html_to_markdown
 from augury.extract.base import Extracted, ExtractionError, UnsupportedItem
@@ -26,5 +28,5 @@ async def extract_item(http: HttpClient, item: Item) -> Extracted:
         pass
     # No HTML rendering for this paper: fall back to the PDF (arXiv's 15 s crawl delay applies).
     resp = await http.get(f"{ARXIV}/pdf/{item.arxiv_id}")
-    md = pdf_to_markdown(resp.content)
+    md = await asyncio.to_thread(pdf_to_markdown, resp.content)  # CPU only; never the DB
     return Extracted(md, "pdf", word_count(md))

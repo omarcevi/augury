@@ -7,16 +7,19 @@ from textual.app import App
 from textual.widgets import Static
 
 from augury.agents.normalize import store_items
+from augury.core.config import Config
 from augury.core.db.contents_repo import ContentsRepo
+from augury.core.db.open import open_db
 from augury.core.db.state_repo import StateRepo
 from augury.core.models import Content, RawItem
 from augury.extract.service import EXTRACTOR_VERSION
+from augury.tui.app import AuguryApp
 from augury.tui.layout import layout_for
 from augury.tui.widgets.items_table import ItemsTable
 from augury.tui.widgets.reader_pane import ReaderPane
 from augury.tui.widgets.status_line import StatusLine
 from tests.helpers import CountingHttp
-from tests.tui.conftest import NOW
+from tests.tui.conftest import NOW, Gate, until
 from tests.unit.test_extract_html import GENERIC
 
 LONG_MD = "# Title\n\n" + "\n\n".join(f"## Section {i}\n\n" + "word " * 150 for i in range(12))
@@ -53,13 +56,24 @@ def cache(app, item_id: str, md: str = LONG_MD) -> None:
 
 async def open_first(pilot) -> None:
     await pilot.press("enter")
-    await pilot.pause(0.5)
     await pilot.app.workers.wait_for_complete()
-    await pilot.pause()
+    await until(pilot, lambda: pilot.app.reader_settled)
+
+
+def progress(app, item_id: str) -> float:
+    return StateRepo(app.conn).get(item_id).read_progress
 
 
 def test_layout_breakpoints():
     assert [layout_for(w) for w in (90, 130, 180)] == ["narrow", "medium", "wide"]
+
+
+def test_the_reader_debounce_defaults_to_300_ms(paths, monkeypatch):
+    waits: list[float] = []
+    monkeypatch.setattr(asyncio, "sleep", waits.append)
+    app = AuguryApp(conn=open_db(paths, now=NOW), config=Config(), paths=paths)
+    app.reader_debounce()
+    assert waits == [0.3]
 
 
 async def test_cursor_movement_never_touches_the_network(make_app):
@@ -68,7 +82,8 @@ async def test_cursor_movement_never_touches_the_network(make_app):
     seed(app)
     async with app.run_test(size=(180, 50)) as pilot:
         await pilot.press("down", "down", "up")
-        await pilot.pause(0.5)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
         assert http.calls == []
         assert "Summary of post" in app.query_one(ReaderPane).preview_text
 
@@ -117,8 +132,7 @@ async def test_progress_is_saved(make_app):
     async with app.run_test(size=(180, 50)) as pilot:
         await open_first(pilot)
         app.query_one(ReaderPane).viewer.scroll_end(animate=False)
-        await pilot.pause(0.3)
-        assert StateRepo(app.conn).get(item_id).read_progress >= 0.9
+        await until(pilot, lambda: progress(app, item_id) >= 0.9)
 
 
 async def test_contents_and_zen(make_app):
@@ -139,8 +153,9 @@ async def test_contents_never_squeeze_out_the_document(make_app):
     async with app.run_test(size=(180, 50)) as pilot:
         await open_first(pilot)
         await pilot.press("c")
-        await pilot.pause(0.3)
         viewer = app.query_one(ReaderPane).viewer
+        await until(pilot, lambda: viewer.table_of_contents.size.width > 0)
+        await pilot.pause()
         assert viewer.document.size.width >= viewer.size.width // 2
 
 
@@ -174,9 +189,9 @@ async def test_crawl_delay_is_explained(make_app):
     seed(app)
     async with app.run_test(size=(180, 50)) as pilot:
         await pilot.press("enter")
-        await pilot.pause(0.5)  # past the debounce: waiting out the delay
-        assert "arxiv.org" in app.query_one(ReaderPane).status_message
-        assert "crawl delay" in app.query_one(ReaderPane).status_message
+        reader = app.query_one(ReaderPane)
+        await until(pilot, lambda: "Waiting" in reader.status_message)
+        assert "arxiv.org" in reader.status_message and "crawl delay" in reader.status_message
         http.release.set()
 
 
@@ -223,23 +238,26 @@ async def test_relayout_keeps_the_reading_position(make_app, change):
         await open_first(pilot)
         viewer = app.query_one(ReaderPane).viewer
         viewer.scroll_to(y=viewer.max_scroll_y / 2, animate=False)
-        await pilot.pause(0.3)
-        assert StateRepo(app.conn).get(item_id).read_progress == pytest.approx(0.5, abs=0.02)
+        await until(pilot, lambda: progress(app, item_id) > 0)
+        assert progress(app, item_id) == pytest.approx(0.5, abs=0.02)
+        before = viewer.virtual_size
         if change == "zen":
             await pilot.press("z")
         elif change == "resize":
             await pilot.resize_terminal(200, 50)
         else:
             await pilot.press("c")
-        await pilot.pause(0.3)
+        await until(pilot, lambda: viewer.virtual_size != before and app.reader_settled)
         await pilot.press("j")
-        await pilot.pause(0.3)
-        assert StateRepo(app.conn).get(item_id).read_progress == pytest.approx(0.5, abs=0.05)
+        await pilot.pause()
+        assert progress(app, item_id) == pytest.approx(0.5, abs=0.05)
         assert viewer.scroll_y / viewer.max_scroll_y == pytest.approx(0.5, abs=0.05)
 
 
 async def test_scrolling_during_the_switch_is_not_recorded(make_app):
-    app = make_app()
+    gate = Gate()
+    gate.open()
+    app = make_app(debounce=gate)
     ids = seed(app)
     cache(app, ids[0])
     cache(app, ids[1])
@@ -247,27 +265,31 @@ async def test_scrolling_during_the_switch_is_not_recorded(make_app):
         await open_first(pilot)
         viewer = app.query_one(ReaderPane).viewer
         viewer.scroll_to(y=viewer.max_scroll_y / 2, animate=False)
-        await pilot.pause(0.3)
+        await until(pilot, lambda: progress(app, ids[0]) > 0)
+        gate.close()
         await pilot.press("n", "j")  # the old document is still on screen during the debounce
-        await pilot.pause(0.5)
-        await app.workers.wait_for_complete()
         await pilot.pause()
-        assert StateRepo(app.conn).get(ids[1]).read_progress == 0
+        gate.open()
+        await app.workers.wait_for_complete()
+        await until(pilot, lambda: app.reader_settled)
+        assert app.reading_id == ids[1] and progress(app, ids[1]) == 0
 
 
 async def test_skipped_items_are_not_marked_opened(make_app):
-    app = make_app()
+    gate = Gate()
+    app = make_app(debounce=gate)
     ids = seed(app)
     cache(app, ids[0])
     async with app.run_test(size=(180, 50)) as pilot:
-        await open_first(pilot)
-        await pilot.press("n", "n", "n")  # faster than the debounce; the third hits the end
-        await pilot.pause(0.5)
+        await pilot.press("enter", "n", "n", "n")  # all inside the debounce; the last hits the end
+        await pilot.pause()
+        gate.open()
         await app.workers.wait_for_complete()
         await pilot.pause()
         state = StateRepo(app.conn)
         assert app.reading_id == ids[2]
-        assert state.get(ids[1]).read_at is None and state.interactions(ids[1]) == []
+        for skipped in ids[:2]:
+            assert state.get(skipped).read_at is None and state.interactions(skipped) == []
         assert state.interactions(ids[2]) == ["open"]
 
 
@@ -278,7 +300,7 @@ async def test_prev_on_the_first_item_does_nothing(make_app):
     async with app.run_test(size=(180, 50)) as pilot:
         await open_first(pilot)
         await pilot.press("p")
-        await pilot.pause(0.5)
+        await pilot.pause()
         await app.workers.wait_for_complete()
         assert app.reading_id == ids[0]
         assert StateRepo(app.conn).interactions(ids[0]) == ["open"]
@@ -347,13 +369,12 @@ async def test_next_item_opens_at_the_top(make_app):
     async with app.run_test(size=(180, 50)) as pilot:
         await open_first(pilot)
         app.query_one(ReaderPane).viewer.scroll_end(animate=False)
-        await pilot.pause(0.3)
+        await until(pilot, lambda: progress(app, ids[0]) >= 0.9)
         await pilot.press("n")
-        await pilot.pause(0.5)
         await app.workers.wait_for_complete()
-        await pilot.pause()
+        await until(pilot, lambda: app.reader_settled)
         assert app.reading_id == ids[1] and app.query_one(ReaderPane).viewer.scroll_y == 0
-        assert StateRepo(app.conn).get(ids[1]).read_progress == 0
+        assert progress(app, ids[1]) == 0
 
 
 async def test_bracket_jumps_to_the_next_section(make_app):
@@ -407,7 +428,8 @@ async def test_resize_behind_a_modal_still_updates_the_layout(make_app):
 
 
 async def test_row_dot_follows_the_reading_state(make_app):
-    app = make_app()
+    gate = Gate()
+    app = make_app(debounce=gate)
     ids = seed(app)
     cache(app, ids[0])
     async with app.run_test(size=(180, 50)) as pilot:
@@ -415,11 +437,12 @@ async def test_row_dot_follows_the_reading_state(make_app):
         await pilot.press("enter")
         await pilot.pause()
         assert table.get_row(ids[0])[0].plain == "●"  # not opened yet: still in the debounce
-        await pilot.pause(0.5)
+        gate.open()
         await app.workers.wait_for_complete()
         assert table.get_row(ids[0])[0].plain == "◐"
+        await until(pilot, lambda: app.reader_settled)
         app.query_one(ReaderPane).viewer.scroll_end(animate=False)
-        await pilot.pause(0.3)
+        await until(pilot, lambda: progress(app, ids[0]) >= 0.9)
         await pilot.press("n")
         await pilot.pause()
         assert table.get_row(ids[0])[0].plain == "○"
@@ -446,11 +469,30 @@ async def test_like_while_reading_toggles_the_open_item(make_app):
         assert not any(StateRepo(app.conn).get(i).liked for i in ids)
 
 
+async def test_hiding_while_reading_says_what_happened(make_app):
+    app = make_app()
+    ids = seed(app)
+    cache(app, ids[0])
+    async with app.run_test(size=(180, 50)) as pilot:
+        await open_first(pilot)
+        await pilot.press("x")
+        await pilot.press("x")
+        notes = list(app._notifications)
+        assert [n.message for n in notes] == [
+            "Hidden — it won't show in Unread",
+            "No longer hidden",
+        ]
+        assert not any(n.markup for n in notes)
+
+
 async def test_leaving_mid_extraction_never_shows_the_stale_item(make_app):
     release = asyncio.Event()
 
+    started = asyncio.Event()
+
     class SlowHttp(CountingHttp):
         async def get(self, url, **kwargs):
+            started.set()
             await release.wait()
             return await super().get(url, **kwargs)
 
@@ -458,7 +500,7 @@ async def test_leaving_mid_extraction_never_shows_the_stale_item(make_app):
     seed(app)
     async with app.run_test(size=(180, 50)) as pilot:
         await pilot.press("enter")
-        await pilot.pause(0.5)  # past the debounce: the request is in flight
+        await asyncio.wait_for(started.wait(), timeout=5)  # the request is in flight
         await pilot.press("escape", "down")
         release.set()
         await app.workers.wait_for_complete()

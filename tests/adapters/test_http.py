@@ -1,9 +1,14 @@
+import asyncio
+
 import httpx
 import pytest
 
 from augury.core.config import HttpConfig
 from augury.sources.http import (
+    ROBOTS_NETWORK_TTL_S,
+    ROBOTS_UNAVAILABLE_TTL_S,
     HttpError,
+    NetworkError,
     PoliteClient,
     ResponseTooLarge,
     RobotsDisallowed,
@@ -125,3 +130,58 @@ async def test_sitemaps_come_from_robots(client, respx_mock):
         respx_mock, ORIGIN, "User-agent: *\nAllow: /\nSitemap: https://example.com/sm.xml\n"
     )
     assert await client.sitemaps(f"{ORIGIN}/blog") == ["https://example.com/sm.xml"]
+
+
+ALLOW_ALL = "User-agent: *\nAllow: /\n"
+
+
+@pytest.mark.respx(assert_all_called=False)  # the page itself must stay unfetched
+async def test_unreachable_robots_is_a_network_error_retried_soon(client, respx_mock, fake_time):
+    robots = respx_mock.get(f"{ORIGIN}/robots.txt").mock(side_effect=httpx.ConnectError("down"))
+    page = respx_mock.get(f"{ORIGIN}/a").mock(return_value=httpx.Response(200, text="ok"))
+    with pytest.raises(NetworkError, match="network error: ConnectError") as err:
+        await client.get(f"{ORIGIN}/a")
+    assert "robots.txt" in str(err.value) and "disallowed" not in str(err.value)
+    assert not page.called and robots.call_count == 3  # the first try and 2 retries
+    with pytest.raises(NetworkError):  # a burst of requests fails fast, without refetching
+        await client.get(f"{ORIGIN}/a")
+    assert robots.call_count == 3
+    fake_time.now += ROBOTS_NETWORK_TTL_S  # the network is back a minute later
+    robots.mock(return_value=httpx.Response(200, text=ALLOW_ALL))
+    assert (await client.get(f"{ORIGIN}/a")).text() == "ok"
+
+
+@pytest.mark.respx(assert_all_called=False)
+async def test_robots_server_error_blocks_briefly_and_says_so(client, respx_mock, fake_time):
+    robots = respx_mock.get(f"{ORIGIN}/robots.txt").mock(return_value=httpx.Response(503))
+    page = respx_mock.get(f"{ORIGIN}/a").mock(return_value=httpx.Response(200, text="ok"))
+    with pytest.raises(HttpError, match=r"robots\.txt unavailable: HTTP 503") as err:
+        await client.get(f"{ORIGIN}/a")
+    assert not isinstance(err.value, RobotsDisallowed | NetworkError) and not page.called
+    fake_time.now += ROBOTS_UNAVAILABLE_TTL_S
+    robots.mock(return_value=httpx.Response(200, text=ALLOW_ALL))
+    assert (await client.get(f"{ORIGIN}/a")).text() == "ok"
+
+
+async def test_concurrent_first_contact_fetches_robots_once(client, respx_mock):
+    async def slow_robots(request):
+        await asyncio.sleep(0)  # a real fetch yields, letting the other requests catch up
+        return httpx.Response(200, text=ALLOW_ALL)
+
+    robots = respx_mock.get(f"{ORIGIN}/robots.txt").mock(side_effect=slow_robots)
+    respx_mock.get(url__startswith=f"{ORIGIN}/p").mock(return_value=httpx.Response(200))
+    await asyncio.gather(*(client.get(f"{ORIGIN}/p{i}") for i in range(3)))
+    assert robots.call_count == 1
+
+
+@pytest.mark.parametrize("url", ["mailto:x@example.com", "jvns.ca", "file:///etc/passwd"])
+async def test_non_web_urls_fail_fast(client, respx_mock, fake_time, url):
+    with pytest.raises(HttpError, match="not an http"):
+        await client.get(url)
+    assert not respx_mock.calls and fake_time.sleeps == []  # no robots lookup, no retries
+
+
+async def test_malformed_urls_fail_fast(client, respx_mock, fake_time):
+    with pytest.raises(HttpError, match="invalid URL"):
+        await client.get("https://[::1/x")
+    assert not respx_mock.calls and fake_time.sleeps == []

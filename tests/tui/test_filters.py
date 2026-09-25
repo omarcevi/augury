@@ -29,7 +29,7 @@ async def test_typing_filters_the_table_live(make_app):
     seed(app)
     async with app.run_test(size=(140, 40)) as pilot:
         await pilot.press("slash", "q", "w", "e", "n")
-        await pilot.pause(0.3)
+        await pilot.pause()
         assert app.query_one(ItemsTable).row_count == 1
         assert app.mode == "SEARCH"
 

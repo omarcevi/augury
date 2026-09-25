@@ -5,14 +5,21 @@ Status: **pre-alpha** (v0.1 in development). Supports macOS and Linux.
 
 ## Getting started
 
+augury isn't on PyPI yet, so install it from a clone:
+
 ```bash
-uv tool install augury   # gets Python 3.14 for you if needed
-augury init                      # interests, sources, optional Markdown export folder
-augury scout                     # fetch today's papers and posts
-augury                           # read them in the terminal
-augury sources add https://some.blog/   # add any blog with a feed
-augury schedule install          # optional: scout daily in the background
+git clone https://github.com/omarcevi/augury.git
+cd augury
+uv tool install .              # gets Python 3.14 for you if needed
+augury init                    # interests, sources, optional Markdown export folder
+augury doctor                  # check paths, config, database and network
+augury scout                   # fetch today's papers and posts
+augury                         # read them in the terminal (? shows every key)
+augury sources add jvns.ca     # add any blog with a feed (https:// is assumed)
+augury schedule install        # optional: scout daily in the background
 ```
+
+To try it without installing, run the same commands as `uv run augury …` inside the clone.
 
 ## Development
 

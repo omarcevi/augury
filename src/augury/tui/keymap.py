@@ -46,6 +46,8 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
         KeyHint("d", "remove"),
         KeyHint("r", "refresh"),
         KeyHint("1", "items"),
+        KeyHint("esc", "back"),
+        KeyHint("?", "help"),
         KeyHint("q", "quit"),
     ),
 }

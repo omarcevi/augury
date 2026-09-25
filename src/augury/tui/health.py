@@ -19,6 +19,7 @@ class HealthSnapshot:
     new_today: int
     sources: dict[str, int] = field(default_factory=dict)
     scouting: bool = False
+    enrich_error: str | None = None
 
 
 def load_health(
@@ -38,6 +39,7 @@ def load_health(
         int(new_today),
         dict(counts),
         scouting,
+        last.stats.get("enrich_error") if last else None,
     )
 
 
@@ -65,6 +67,8 @@ def health_line(s: HealthSnapshot, palette: Mapping[str, str]) -> Text:
             " failed" if failed else ""
         )
         line.append(label, style=palette.get("error", "") if failed else "")
+        if s.enrich_error:
+            line.append(" · enrich ⚠", style=palette.get("warning", ""))
     line.append(f" · {s.new_today} new today")
     line.append("  │  Sources: ")
     ok = s.sources.get("ok", 0) + s.sources.get("never", 0)

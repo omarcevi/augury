@@ -1,12 +1,16 @@
 from datetime import timedelta
 
+from textual.containers import VerticalScroll
+from textual.widgets import Static
+
 from augury.agents.normalize import store_items
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.models import RawItem
+from augury.tui.app import AuguryApp
 from augury.tui.widgets.health_bar import HealthBar
 from augury.tui.widgets.help_overlay import HelpOverlay
 from augury.tui.widgets.status_line import StatusLine
-from tests.tui.conftest import NOW
+from tests.tui.conftest import NOW, until
 from tests.tui.test_items_table import CJK
 
 
@@ -24,6 +28,34 @@ async def test_health_bar_after_a_scout(make_app):
     runs.finish(run_id, "ok", now=NOW - timedelta(hours=2))
     async with app.run_test(size=(120, 30)):
         assert "Scout: 07:00 (2h ago)" in app.query_one(HealthBar).render().plain
+
+
+async def test_health_bar_keeps_the_scout_age_current(make_app, monkeypatch):
+    monkeypatch.setattr(AuguryApp, "HEALTH_REFRESH_S", 0.01)
+    app = make_app()
+    runs = RunsRepo(app.conn)
+    run_id = runs.start("scout", now=NOW - timedelta(hours=2))
+    runs.finish(run_id, "ok", now=NOW - timedelta(hours=2))
+    clock = [NOW]
+    app.now = lambda: clock[0]
+    async with app.run_test(size=(120, 30)) as pilot:
+        bar = app.query_one(HealthBar)
+        assert "(2h ago)" in bar.render().plain
+        clock[0] = NOW + timedelta(hours=1)
+        await until(pilot, lambda: "(3h ago)" in bar.render().plain)
+
+
+async def test_health_bar_warns_when_enrichment_failed(make_app):
+    app = make_app()
+    runs = RunsRepo(app.conn)
+    run_id = runs.start("scout", now=NOW - timedelta(hours=2))
+    stats = {"enrich_error": "1 of 3 failed; first: web:x: RuntimeError: boom"}
+    runs.finish(run_id, "ok", now=NOW - timedelta(hours=2), stats=stats)
+    async with app.run_test(size=(120, 30)):
+        line = app.query_one(HealthBar).render()
+        assert "Scout: 07:00 (2h ago) · enrich ⚠" in line.plain
+        warning = app.get_css_variables()["warning"]
+        assert any(str(span.style) == warning for span in line.spans)
 
 
 async def test_status_line_shows_mode_and_hints(make_app):
@@ -57,6 +89,46 @@ async def test_help_overlay_opens_and_closes(make_app):
         assert isinstance(app.screen, HelpOverlay)
         await pilot.press("escape")
         assert not isinstance(app.screen, HelpOverlay)
+
+
+def visible_help(app) -> list[str]:
+    scroll = app.screen.query_one("#help-body", VerticalScroll)
+    lines = str(app.screen.query_one("#help-text", Static).render()).splitlines()
+    top = round(scroll.scroll_y)
+    return lines[top : top + scroll.scrollable_content_region.height]
+
+
+async def test_help_fits_80x24_and_scrolls_to_every_mode(make_app):
+    app = make_app()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("question_mark")
+        await pilot.pause()
+        shown = visible_help(app)
+        assert shown[0].strip() == "NORMAL" and any(line.split() == ["q", "quit"] for line in shown)
+        assert not any("SOURCES" in line for line in shown)
+        await pilot.press("end")
+        await pilot.pause()
+        shown = visible_help(app)
+        assert any("SOURCES" in line for line in shown)
+        assert any(line.split() == ["t", "test", "fetch"] for line in shown)
+
+
+async def test_help_closes_with_escape_q_or_question_mark(make_app):
+    app = make_app()
+    async with app.run_test(size=(80, 24)) as pilot:
+        for key in ("escape", "q", "question_mark"):
+            await pilot.press("question_mark")
+            assert isinstance(app.screen, HelpOverlay)
+            await pilot.press(key)
+            assert not isinstance(app.screen, HelpOverlay) and app.is_running
+
+
+async def test_help_lists_the_current_modes_keys_first(make_app):
+    app = make_app()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("2", "question_mark")
+        await pilot.pause()
+        assert visible_help(app)[0].strip() == "SOURCES"
 
 
 async def test_t_cycles_the_theme(make_app):
