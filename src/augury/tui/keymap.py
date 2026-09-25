@@ -10,6 +10,7 @@ class KeyHint:
 KEYMAP: dict[str, tuple[KeyHint, ...]] = {
     "NORMAL": (
         KeyHint("/", "search"),
+        KeyHint("2", "sources"),
         KeyHint("S", "sources"),
         KeyHint("K", "kind"),
         KeyHint("D", "date"),
@@ -35,6 +36,14 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
         KeyHint("?", "help"),
         KeyHint("q", "quit"),
         KeyHint("esc", "back"),
+    ),
+    "SOURCES": (
+        KeyHint("+", "add"),
+        KeyHint("t", "test fetch"),
+        KeyHint("e", "enable/disable"),
+        KeyHint("d", "remove"),
+        KeyHint("1", "items"),
+        KeyHint("q", "quit"),
     ),
 }
 

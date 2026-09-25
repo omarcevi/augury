@@ -14,7 +14,7 @@ from textual.containers import Container, Horizontal
 from textual.geometry import Size
 from textual.reactive import reactive
 from textual.timer import Timer
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import ContentSwitcher, DataTable, Input, Static
 
 from augury.core.clock import utcnow
 from augury.core.config import Config, HttpConfig
@@ -44,10 +44,29 @@ from augury.tui.widgets.help_overlay import HelpOverlay
 from augury.tui.widgets.items_table import ItemsTable
 from augury.tui.widgets.picker_modal import ChoiceModal, PickerModal
 from augury.tui.widgets.reader_pane import ReaderPane
+from augury.tui.widgets.sources_view import SourcesView
 from augury.tui.widgets.status_line import StatusLine
 
 EMPTY_MESSAGE = "Nothing here yet. Run `augury scout` to fetch today's items."
 _OPENABLE_SCHEMES = ("http", "https")
+# Item-list actions that must not fall through to the (hidden) ItemsTable/reader while the
+# Sources view is showing. Unlike `t` (theme vs. test fetch) and `escape` (back vs. close-add),
+# nothing in SourcesView shadows these keys, so without this an app-level `l`/`x`/`o`/... would
+# act on whatever item was last selected/read in the items view.
+_ITEMS_ONLY_ACTIONS = frozenset(
+    {
+        "toggle_like",
+        "toggle_save",
+        "toggle_hide",
+        "open_browser",
+        "pick_sources",
+        "pick_kinds",
+        "pick_date",
+        "cycle_sort",
+        "cycle_show",
+        "focus_search",
+    }
+)
 
 
 class AuguryApp(App[None]):
@@ -58,6 +77,8 @@ class AuguryApp(App[None]):
         Binding("t", "cycle_theme", "theme"),
         Binding("q", "quit", "quit"),
         Binding("slash", "focus_search", "search"),
+        Binding("1", "show_items", "items"),
+        Binding("2", "show_sources", "sources"),
         Binding("S", "pick_sources", "sources"),
         Binding("K", "pick_kinds", "kind"),
         Binding("D", "pick_date", "date"),
@@ -97,11 +118,13 @@ class AuguryApp(App[None]):
     def compose(self) -> ComposeResult:
         yield HealthBar(id="health")
         yield FilterChips(id="filters")
-        with Horizontal(id="main"):
-            with Container(id="items-pane"):
-                yield ItemsTable(id="items")
-                yield Static(EMPTY_MESSAGE, id="empty")
-            yield ReaderPane(id="reader")
+        with ContentSwitcher(id="views", initial="main"):
+            with Horizontal(id="main"):
+                with Container(id="items-pane"):
+                    yield ItemsTable(id="items")
+                    yield Static(EMPTY_MESSAGE, id="empty")
+                yield ReaderPane(id="reader")
+            yield SourcesView(id="sources-view")
         yield StatusLine(id="status")
 
     def on_mount(self) -> None:
@@ -116,6 +139,7 @@ class AuguryApp(App[None]):
         self.refresh_health()
         self.reload_items()
         self.query_one(FilterChips).show_filter(self.item_filter, self.theme)
+        self.query_one("#add-source").display = False
         # Without this, Textual auto-focuses the first focusable widget in DOM order,
         # which is the search Input (it comes before the table) -- so a bare "/" or
         # "S" keypress would be swallowed as text instead of reaching the app bindings.
@@ -164,6 +188,8 @@ class AuguryApp(App[None]):
         self._reanchor()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.data_table.id != "items":
+            return
         row = self.query_one(ItemsTable).rows_by_key.get(str(event.row_key.value))
         status = self.query_one(StatusLine)
         status.selection = (
@@ -173,6 +199,8 @@ class AuguryApp(App[None]):
             self.query_one(ReaderPane).preview(item, row)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.id != "items":
+            return
         self.open_item(str(event.row_key.value))
 
     def open_item(self, item_id: str) -> None:
@@ -281,6 +309,12 @@ class AuguryApp(App[None]):
         for status in self.query(StatusLine):
             status.mode = mode
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        # `run_action` calls this fresh before every dispatch (see `App._check_bindings`),
+        # so it needs no cache invalidation of its own -- `refresh_bindings()` elsewhere is
+        # only for a Footer-style widget that caches `active_bindings` for display.
+        return not (action in _ITEMS_ONLY_ACTIONS and self.mode == "SOURCES")
+
     def action_help(self) -> None:
         self.push_screen(HelpOverlay())
 
@@ -306,6 +340,35 @@ class AuguryApp(App[None]):
         self.screen.remove_class("reading", "zen")
         self.query_one(ItemsTable).focus()
         self.mode = "NORMAL"
+
+    def action_show_items(self) -> None:
+        self.query_one(ContentSwitcher).current = "main"
+        if self.reading_id is not None:
+            # A reading session merely hidden behind Sources, not ended: restore it rather
+            # than discarding it through action_back_to_table (which would clear reading_id).
+            self.mode = "READ"
+            self.query_one(ReaderPane).viewer.document.focus()
+        else:
+            self.action_back_to_table()
+        self.refresh_bindings()
+
+    def action_show_sources(self) -> None:
+        self.query_one(ContentSwitcher).current = "sources-view"
+        self.refresh_sources()
+        self.query_one(SourcesView).table.focus()
+        self.mode = "SOURCES"
+        self.refresh_bindings()
+
+    def refresh_sources(self) -> None:
+        self.query_one(SourcesView).refresh_view()
+
+    def close_reader_if_item_gone(self) -> None:
+        """Call after anything that may have deleted the item open in the reader (e.g.
+        removing its source cascades its items) -- reading_id must never keep pointing at a
+        row that no longer exists."""
+        if self.reading_id is not None and ItemsRepo(self.conn).get(self.reading_id) is None:
+            self.reading_id = None
+            self.screen.remove_class("reading", "zen")
 
     def action_toggle_zen(self) -> None:
         self.screen.toggle_class("zen")

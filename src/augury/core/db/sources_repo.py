@@ -135,3 +135,7 @@ class SourcesRepo:
             "SELECT id FROM sources WHERE json_extract(recipe_json, '$.feed_url') = ?", (feed_url,)
         ).fetchone()
         return row[0] if row else None
+
+    def item_counts(self) -> dict[str, int]:
+        rows = self.conn.execute("SELECT source_id, count(*) FROM items GROUP BY source_id")
+        return {r[0]: int(r[1]) for r in rows}

@@ -4,6 +4,9 @@ from urllib.parse import urljoin, urlsplit
 from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel
 
+from augury.core.db.sources_repo import SourcesRepo
+from augury.core.models import RssRecipe, Source
+from augury.core.text import slugify
 from augury.sources.base import AdapterError
 from augury.sources.http import HttpClient, HttpError
 from augury.sources.rss import FeedInfo, inspect_feed
@@ -84,6 +87,22 @@ def _looks_like_feed(content: bytes, content_type: str = "") -> bool:
         else:
             break
     return head.lower().startswith(FEED_ROOT_TAGS)
+
+
+def build_feed_source(
+    repo: SourcesRepo, info: FeedInfo, *, name: str | None = None, added_via: str
+) -> Source:
+    display = name or info.title
+    return Source.model_validate(
+        {
+            "id": repo.unique_id(slugify(display)),
+            "name": display,
+            "homepage": info.homepage,
+            "origin": "user",
+            "recipe": RssRecipe(feed_url=info.feed_url),
+            "added_via": added_via,
+        }
+    )
 
 
 def _rejection(info: FeedInfo, now: datetime) -> str | None:

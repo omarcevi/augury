@@ -1,5 +1,6 @@
 Screen { layout: vertical; }
 #health { height: 3; border: round $primary; padding: 0 1; }
+#views { height: 1fr; }
 #main { height: 1fr; }
 #items-pane { border: round $primary; border-title-color: $accent; height: 1fr; }
 #items { height: 1fr; }
@@ -26,3 +27,10 @@ Screen.layout-narrow.reading #items-pane { display: none; }
 Screen.layout-narrow.reading #reader { display: block; width: 100%; }
 Screen.zen #items-pane { display: none; }
 Screen.zen #reader { width: 100%; }
+#sources-view { layout: horizontal; height: 1fr; }
+#sources-table { width: 55%; border: round $primary; }
+#sources-side { width: 45%; border: round $primary; padding: 0 1; }
+#add-url { margin-bottom: 1; }
+#add-candidates { height: 1fr; }
+ConfirmModal { align: center middle; }
+#confirm-body { width: 60; height: auto; border: round $warning; background: $surface; padding: 1 2; }

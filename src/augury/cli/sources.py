@@ -7,12 +7,11 @@ from augury.core.clock import utcnow
 from augury.core.config import Config, ConfigError, load_config
 from augury.core.db.open import open_db
 from augury.core.db.sources_repo import BuiltinSourceError, SourcesRepo
-from augury.core.models import FetchState, RssRecipe, Source
+from augury.core.models import FetchState, Source
 from augury.core.paths import app_paths
-from augury.core.text import slugify
 from augury.sources.base import AdapterError
 from augury.sources.http import HttpError, PoliteClient
-from augury.sources.probe import ProbeResult, probe_url
+from augury.sources.probe import ProbeResult, build_feed_source, probe_url
 from augury.sources.registry import adapter_for
 from augury.sources.rss import FeedInfo, inspect_feed
 
@@ -58,16 +57,7 @@ def add_feed_source(
 ) -> Source:
     repo = SourcesRepo(conn)
     display = name or info.title
-    source = Source.model_validate(
-        {
-            "id": repo.unique_id(slugify(display)),
-            "name": display,
-            "homepage": info.homepage,
-            "origin": "user",
-            "recipe": RssRecipe(feed_url=info.feed_url),
-            "added_via": added_via,
-        }
-    )
+    source = build_feed_source(repo, info, name=name, added_via=added_via)
     newest = f", newest {info.newest:%Y-%m-%d}" if info.newest else ""
     click.echo(f"{display}  ({info.feed_url})\n  {info.entries} entries{newest}")
     for title in info.sample_titles:
