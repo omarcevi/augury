@@ -18,3 +18,10 @@ def paths(tmp_path, monkeypatch) -> AppPaths:
     p = app_paths()
     p.ensure()
     return p
+
+
+@pytest.fixture
+def fast_http(paths: AppPaths) -> AppPaths:
+    """Tests that go through the real PoliteClient shouldn't sleep between requests."""
+    paths.config_file.write_text("[http]\nmin_interval_s = 0\n")
+    return paths

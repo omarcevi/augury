@@ -3,9 +3,11 @@ from augury.sources.base import Adapter, AdapterError
 from augury.sources.hf_blog import HfBlogAdapter
 from augury.sources.hf_community import HfCommunityAdapter
 from augury.sources.hf_papers import HfPapersAdapter
+from augury.sources.rss import RssAdapter
 
 ADAPTERS: dict[str, Adapter] = {
-    a.recipe_type: a for a in (HfPapersAdapter(), HfBlogAdapter(), HfCommunityAdapter())
+    a.recipe_type: a
+    for a in (HfPapersAdapter(), HfBlogAdapter(), HfCommunityAdapter(), RssAdapter())
 }
 
 

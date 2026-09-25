@@ -80,3 +80,8 @@ def init(yes: bool) -> None:
     for path in written:
         click.echo(f"wrote {path}")
     click.echo("Next: `augury scout` to fetch today's items, then `augury` to read them.")
+
+
+from augury.cli.sources import sources_group  # noqa: E402
+
+main.add_command(sources_group)
