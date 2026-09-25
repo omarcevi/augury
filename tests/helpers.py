@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import httpx
 
 
@@ -18,3 +20,15 @@ class FakeTime:
 
 def allow_robots(respx_mock, origin: str, body: str = "User-agent: *\nAllow: /\n") -> None:
     respx_mock.get(f"{origin}/robots.txt").mock(return_value=httpx.Response(200, text=body))
+
+
+class NullHttp:
+    """An HttpClient for tests whose adapters never touch the network."""
+
+    on_wait: Callable[[str, float], None] | None = None
+
+    async def get(self, url, *, etag=None, last_modified=None, respect_robots=True):
+        raise AssertionError(f"unexpected network call: {url}")
+
+    async def sitemaps(self, url):
+        return []
