@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.14"
 
 [[package]]
-name = "article-oracle"
+name = "augury"
 version = "0.1.0.dev0"
 source = { editable = "." }
 dependencies = [

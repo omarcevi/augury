@@ -1,8 +1,8 @@
-"""Article Oracle: a terminal-native AI digest reader."""
+"""Augury: a terminal-native AI digest reader."""
 
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("article-oracle")
+    __version__ = version("augury")
 except PackageNotFoundError:  # running from a source tree that isn't installed
     __version__ = "0.0.0"

@@ -1,5 +1,5 @@
 [project]
-name = "article-oracle"
+name = "augury"
 version = "0.1.0.dev0"
 description = "A terminal-native AI digest reader for research papers and engineering blogs."
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 providers = []
 
 [project.scripts]
-oracle = "article_oracle.cli:main"
+augury = "augury.cli:main"
 
 [dependency-groups]
 dev = [
@@ -28,7 +28,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/article_oracle"]
+packages = ["src/augury"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
