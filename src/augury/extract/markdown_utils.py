@@ -1,10 +1,13 @@
 import re
 
+# The alt group allows one level of nested [...] -- LaTeXML emits alt text like
+# "[Uncaptioned image]" for uncaptioned figures -- but nothing deeper.
+_ALT = r"(?:[^\[\]]|\[[^\[\]]*\])*"
 # A "click to enlarge" image link: [![alt](src)](href). Collapsed before the plain-image
 # pattern below, since CommonMark doesn't allow a link inside a link -- left alone, the
 # outer "](href)" would be stripped to literal trailing text instead of markup.
-_LINKED_IMAGE = re.compile(r'\[!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\]\([^)]*\)')
-_IMAGE = re.compile(r'!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+_LINKED_IMAGE = re.compile(r"\[!\[(" + _ALT + r')\]\(([^)\s]+)(?:\s+"[^"]*")?\)\]\([^)]*\)')
+_IMAGE = re.compile(r"!\[(" + _ALT + r')\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _WORD = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*")  # noqa: RUF001 -- curly apostrophe, not a lookalike bug
 _ESCAPED = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|>])")
@@ -12,7 +15,9 @@ _NOT_PROSE = ("#", ">", "|", "```", "- ", "* ", "[image:", "!")
 
 
 def _placeholder(alt: str, src: str) -> str:
-    text = " ".join(alt.split()) or "figure"
+    # Drop any brackets the alt text carried (e.g. LaTeXML's "[Uncaptioned image]") so the
+    # placeholder itself doesn't read as nested markdown.
+    text = " ".join(alt.replace("[", "").replace("]", "").split()) or "figure"
     return f"[image: {text}]({src})"
 
 

@@ -41,6 +41,12 @@ def main() -> None:
     page.write_bytes(fetch(post_url))
     print("wrote", page, "from", post_url)
 
+    # Has an HTML version (checked 2026-09-25). arXiv asks for a 15 s crawl delay.
+    arxiv_id = "2609.24984"
+    paper = OUT / "pages" / f"arxiv_{arxiv_id}.html"
+    paper.write_bytes(fetch(f"https://arxiv.org/html/{arxiv_id}"))
+    print("wrote", paper)
+
 
 if __name__ == "__main__":
     main()

@@ -13,7 +13,9 @@ from augury.core.models import Content, Item, RawItem
 from augury.extract.service import EXTRACTOR_VERSION, get_or_extract
 from augury.sources.http import PoliteClient
 from tests.helpers import FakeTime, allow_robots
+from tests.pdf_builder import make_pdf
 from tests.unit.test_extract_html import GENERIC
+from tests.unit.test_paper_extract import MINI, THIN_STUB
 
 NOW = datetime(2026, 9, 25, 7, 0, tzinfo=UTC)
 URL = "https://example.com/post"
@@ -24,6 +26,19 @@ def seed_article(conn, url: str = URL) -> Item:
         conn, [RawItem(source_id="hf-blog", url=url, title="Post")], now=NOW
     ).new_ids[0]
     item = ItemsRepo(conn).get(item_id)
+    assert item is not None
+    return item
+
+
+def seed_paper(conn, arxiv_id: str = "2609.00001") -> Item:
+    raw = RawItem(
+        source_id="hf-papers",
+        kind="paper",
+        arxiv_id=arxiv_id,
+        title="A Tiny Paper",
+        url=f"https://huggingface.co/papers/{arxiv_id}",
+    )
+    item = ItemsRepo(conn).get(store_items(conn, [raw], now=NOW).new_ids[0])
     assert item is not None
     return item
 
@@ -96,3 +111,45 @@ def test_dev_extract_prints_markdown(fast_http, respx_mock):
     result = CliRunner().invoke(main, ["dev", "extract", item.id])
     assert result.exit_code == 0, result.output
     assert "draft model propose tokens" in result.output
+
+
+async def test_paper_uses_arxiv_html(paths, http, respx_mock):
+    conn = open_db(paths, now=NOW)
+    item = seed_paper(conn)
+    allow_robots(respx_mock, "https://arxiv.org")
+    respx_mock.get("https://arxiv.org/html/2609.00001").mock(
+        return_value=httpx.Response(200, content=MINI)
+    )
+    content = await get_or_extract(conn, http, item, now=NOW)
+    assert content.status == "ok" and content.extractor == "arxiv_html"
+
+
+async def test_paper_without_html_falls_back_to_pdf(paths, http, respx_mock):
+    conn = open_db(paths, now=NOW)
+    item = seed_paper(conn)
+    allow_robots(respx_mock, "https://arxiv.org")
+    respx_mock.get("https://arxiv.org/html/2609.00001").mock(return_value=httpx.Response(404))
+    respx_mock.get("https://arxiv.org/pdf/2609.00001").mock(
+        return_value=httpx.Response(
+            200, content=make_pdf(["Speculative decoding verifies draft tokens in parallel."] * 10)
+        )
+    )
+    content = await get_or_extract(conn, http, item, now=NOW)
+    assert content.status == "ok" and content.extractor == "pdf"
+
+
+async def test_thin_arxiv_html_falls_back_to_pdf(paths, http, respx_mock):
+    conn = open_db(paths, now=NOW)
+    item = seed_paper(conn)
+    allow_robots(respx_mock, "https://arxiv.org")
+    respx_mock.get("https://arxiv.org/html/2609.00001").mock(
+        return_value=httpx.Response(200, content=THIN_STUB)
+    )
+    pdf_route = respx_mock.get("https://arxiv.org/pdf/2609.00001").mock(
+        return_value=httpx.Response(
+            200, content=make_pdf(["Speculative decoding verifies draft tokens in parallel."] * 10)
+        )
+    )
+    content = await get_or_extract(conn, http, item, now=NOW)
+    assert content.status == "ok" and content.extractor == "pdf"
+    assert pdf_route.call_count == 1

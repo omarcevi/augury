@@ -15,6 +15,14 @@ def test_linked_image_collapses_to_one_placeholder():
     assert images_to_placeholders("![a](i.png)") == "[image: a](i.png)"  # bare image: unchanged
 
 
+def test_bracketed_alt_text_from_latexml_is_unwrapped():
+    # LaTeXML's default alt text for an uncaptioned figure is literally "[Uncaptioned image]".
+    assert images_to_placeholders("![[Uncaptioned image]](u.png)") == (
+        "[image: Uncaptioned image](u.png)"
+    )
+    assert images_to_placeholders("[![[x]](i.png)](big.png)") == "[image: x](i.png)"
+
+
 def test_tidy_collapses_blank_runs_and_trailing_space():
     assert tidy("a  \n\n\n\nb\n") == "a\n\nb"
 
