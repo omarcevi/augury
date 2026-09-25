@@ -11,6 +11,7 @@ from google.adk.workflow import Workflow, node
 from google.genai import types
 from pydantic import BaseModel
 
+from augury.agents.enrich import enrich_new_articles
 from augury.agents.normalize import store_items
 from augury.core.clock import utcnow
 from augury.core.config import Config
@@ -39,6 +40,7 @@ class ScoutReport(BaseModel):
     sources: dict[str, SourceStats]
     new_items: int
     enriched: int = 0
+    enrich_error: str | None = None
 
 
 @dataclass
@@ -109,9 +111,26 @@ def build_scout_workflow(
         sink.append(report)
         return report
 
+    async def enrich(node_input: ScoutReport) -> ScoutReport:
+        try:
+            count = await enrich_new_articles(
+                deps.conn, deps.http, now=deps.now(), limit=deps.config.scout.enrich_max_per_run
+            )
+        except Exception as exc:  # best effort: the items are already stored
+            report = node_input.model_copy(update={"enrich_error": f"{type(exc).__name__}: {exc}"})
+        else:
+            report = node_input.model_copy(update={"enriched": count})
+        sink.append(report)
+        return report
+
     return Workflow(
         name="scout",
-        edges=[("START", plan_sources), (plan_sources, fetch_source), (fetch_source, store)],
+        edges=[
+            ("START", plan_sources),
+            (plan_sources, fetch_source),
+            (fetch_source, store),
+            (store, enrich),
+        ],
     )
 
 

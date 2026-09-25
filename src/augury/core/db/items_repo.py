@@ -121,3 +121,24 @@ class ItemsRepo:
 
     def count(self) -> int:
         return int(self.conn.execute("SELECT count(*) FROM items").fetchone()[0])
+
+    def needing_enrichment(self, limit: int) -> list[Item]:
+        rows = self.conn.execute(
+            "SELECT * FROM items WHERE kind = 'article' AND summary = '' AND enriched_at IS NULL"
+            " ORDER BY first_seen DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [row_to_item(r) for r in rows]
+
+    def set_enrichment(self, item_id: str, summary: str, *, now: datetime) -> None:
+        """Record the attempt even when nothing was found, so a broken page is tried once."""
+        row = self.conn.execute(
+            "SELECT title, summary FROM items WHERE id = ?", (item_id,)
+        ).fetchone()
+        if row is None:
+            return
+        new_summary = summary or row["summary"]
+        self.conn.execute(
+            "UPDATE items SET summary = ?, content_hash = ?, enriched_at = ? WHERE id = ?",
+            (new_summary, content_hash(row["title"], new_summary), to_iso(now), item_id),
+        )

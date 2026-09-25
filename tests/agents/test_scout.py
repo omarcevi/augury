@@ -4,7 +4,7 @@ from typing import ClassVar
 import pytest
 
 from augury.agents.scout import ScoutDeps, recover_interrupted_runs, run_scout
-from augury.core.config import Config
+from augury.core.config import Config, ScoutConfig
 from augury.core.db.open import open_db
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
@@ -33,10 +33,11 @@ class FakeAdapter:
 
 
 def deps(paths, adapters, now=NOW) -> ScoutDeps:
+    config = Config(scout=ScoutConfig(enrich_max_per_run=0))
     return ScoutDeps(
         conn=open_db(paths, now=now),
         http=NullHttp(),
-        config=Config(),
+        config=config,
         lock_path=paths.scout_lock_file,
         adapters=adapters,
         now=lambda: now,

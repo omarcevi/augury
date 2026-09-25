@@ -1,4 +1,4 @@
-from augury.extract.markdown_utils import images_to_placeholders, tidy, word_count
+from augury.extract.markdown_utils import images_to_placeholders, lead_paragraph, tidy, word_count
 
 
 def test_images_become_openable_placeholders():
@@ -21,3 +21,21 @@ def test_tidy_collapses_blank_runs_and_trailing_space():
 
 def test_word_count_ignores_link_targets():
     assert word_count("Read [the paper](https://arxiv.org/abs/1234.5678) now") == 4
+
+
+LONG = "Speculative decoding lets a small draft model propose tokens for a larger model to verify."
+
+
+def test_lead_paragraph_skips_headings_images_and_short_lines():
+    md = f"# Title\n\nShort line.\n\n[image: fig](https://x/f.png)\n\n{LONG} See [paper](https://a/b)."
+    assert lead_paragraph(md) == f"{LONG} See paper."
+
+
+def test_lead_paragraph_unescapes_markdown_and_truncates():
+    md = " ".join([LONG.replace("draft", r"draft\_model")] * 3)  # one ~290-char paragraph
+    summary = lead_paragraph(md, max_chars=120)
+    assert "draft_model" in summary and len(summary) <= 120 and summary.endswith("…")
+
+
+def test_lead_paragraph_can_be_empty():
+    assert lead_paragraph("# Only a heading") == ""

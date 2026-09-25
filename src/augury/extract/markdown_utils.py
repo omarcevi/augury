@@ -7,6 +7,8 @@ _LINKED_IMAGE = re.compile(r'\[!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\]\([^)]
 _IMAGE = re.compile(r'!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _WORD = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*")  # noqa: RUF001 -- curly apostrophe, not a lookalike bug
+_ESCAPED = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|>])")
+_NOT_PROSE = ("#", ">", "|", "```", "- ", "* ", "[image:", "!")
 
 
 def _placeholder(alt: str, src: str) -> str:
@@ -27,3 +29,23 @@ def tidy(md: str) -> str:
 
 def word_count(md: str) -> int:
     return len(_WORD.findall(_LINK.sub(r"\1", md)))
+
+
+def lead_paragraph(md: str, *, min_chars: int = 80, max_chars: int = 600) -> str:
+    """The article's opening prose, as plain text, for use as a summary."""
+    picked: list[str] = []
+    for block in re.split(r"\n\s*\n", md):
+        block = block.strip()
+        if not block or block.startswith(_NOT_PROSE):
+            continue
+        text = _ESCAPED.sub(r"\1", _LINK.sub(r"\1", block)).replace("**", "")
+        text = " ".join(text.split())
+        if len(text) < min_chars:
+            continue
+        picked.append(text)
+        if sum(len(p) for p in picked) >= max_chars // 2:
+            break
+    summary = " ".join(picked)
+    if len(summary) <= max_chars:
+        return summary
+    return summary[: max_chars - 1].rsplit(" ", 1)[0] + "…"
