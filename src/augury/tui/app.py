@@ -3,6 +3,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from typing import ClassVar
+from urllib.parse import urlsplit
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
@@ -14,6 +15,7 @@ from textual.widgets import DataTable, Input, Static
 from augury.core.clock import utcnow
 from augury.core.config import Config
 from augury.core.db.sources_repo import SourcesRepo
+from augury.core.db.state_repo import StateRepo, Toggle
 from augury.core.paths import AppPaths
 from augury.tui.health import load_health
 from augury.tui.keymap import THEMES
@@ -34,6 +36,7 @@ from augury.tui.widgets.picker_modal import ChoiceModal, PickerModal
 from augury.tui.widgets.status_line import StatusLine
 
 EMPTY_MESSAGE = "Nothing here yet. Run `augury scout` to fetch today's items."
+_OPENABLE_SCHEMES = ("http", "https")
 
 
 class AuguryApp(App[None]):
@@ -49,6 +52,10 @@ class AuguryApp(App[None]):
         Binding("D", "pick_date", "date"),
         Binding("s", "cycle_sort", "sort"),
         Binding("v", "cycle_show", "show"),
+        Binding("l", "toggle_like", "like"),
+        Binding("b", "toggle_save", "save"),
+        Binding("x", "toggle_hide", "hide"),
+        Binding("o", "open_browser", "browser"),
         Binding("escape", "back_to_table", "back"),
     ]
     mode: reactive[str] = reactive("NORMAL")
@@ -189,3 +196,41 @@ class AuguryApp(App[None]):
 
         options = [(DATE_LABELS[d], d) for d in DATE_RANGES]
         self.push_screen(ChoiceModal("Date", options, self.item_filter.date), done)
+
+    def open_url(self, url: str, *, new_tab: bool = True) -> None:
+        # Only http(s) URLs reach the browser; item URLs come from the DB/feeds, which
+        # is untrusted-ish content -- never hand a file:/javascript: scheme to the driver.
+        if urlsplit(url).scheme in _OPENABLE_SCHEMES:
+            super().open_url(url, new_tab=new_tab)
+
+    def _toggle(self, field: Toggle) -> None:
+        if (row := self.query_one(ItemsTable).current_row()) is None:
+            return
+        StateRepo(self.conn).toggle(row.id, field, now=self.now())
+        self.reload_items(keep=row.id)
+
+    def action_toggle_like(self) -> None:
+        self._toggle("liked")
+
+    def action_toggle_save(self) -> None:
+        self._toggle("saved")
+
+    def action_toggle_hide(self) -> None:
+        self._toggle("hidden")
+
+    def action_open_browser(self) -> None:
+        if (row := self.query_one(ItemsTable).current_row()) is None:
+            return
+        if urlsplit(row.url).scheme not in _OPENABLE_SCHEMES:
+            self.notify(f"Won't open this link: {row.url}", severity="warning")
+            return
+        self.open_url(row.url)
+        StateRepo(self.conn).mark_opened(
+            row.id, now=self.now()
+        )  # read elsewhere still counts as opened
+        rows, _total = list_items(self.conn, replace(self.item_filter, show="all"), now=self.now())
+        table = self.query_one(ItemsTable)
+        table.show(
+            [r for r in rows if r.id in table.rows_by_key], self.now(), self.get_css_variables()
+        )
+        table.select_key(row.id)

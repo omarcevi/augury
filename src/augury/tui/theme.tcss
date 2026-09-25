@@ -4,7 +4,7 @@ Screen { layout: vertical; }
 #items-pane { border: round $primary; border-title-color: $accent; height: 1fr; }
 #items { height: 1fr; }
 #empty { padding: 1 2; color: $text-muted; }
-#status { height: 2; padding: 0 1; }
+#status { height: 2; padding: 0 1; text-wrap: nowrap; text-overflow: ellipsis; }
 HelpOverlay { align: center middle; }
 #help-body { width: 64; height: auto; max-height: 80%; border: round $accent; background: $surface; padding: 1 2; }
 #filters { height: 3; }
