@@ -1,9 +1,17 @@
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
+from google.adk.models import LlmCapabilities
+from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
+from pydantic import Field
 
+from augury.llm.resolver import ModelUnavailable, ResolvedModel, Resolver, Role
 from augury.sources.http import HttpError, Response
 
 
@@ -105,3 +113,68 @@ class HfHttp(CountingHttp):
         started.set()
         await gate.wait()
         return await super().get(url)
+
+
+class ScriptedLlm(BaseLlm):
+    """ADK's BaseLlm with canned replies (spec §13). Each reply is a str, a types.Part (e.g. a
+    function call), an exception to raise, or a function of the request that returns a str.
+    Every request is recorded, so tests can prove when a model was (or wasn't) called."""
+
+    model: str = "fake-model"
+    replies: list[Any] = Field(default_factory=list)
+    requests: list[LlmRequest] = Field(default_factory=list)
+    usage: tuple[int, int] = (100, 20)
+
+    @property
+    def capabilities(self) -> LlmCapabilities:
+        return LlmCapabilities(output_schema_and_tools=False)
+
+    async def generate_content_async(
+        self, llm_request: LlmRequest, stream: bool = False
+    ) -> AsyncGenerator[LlmResponse]:
+        self.requests.append(llm_request)
+        if not self.replies:
+            raise AssertionError("ScriptedLlm has no reply left for this request")
+        reply = self.replies.pop(0)
+        if isinstance(reply, BaseException):
+            raise reply
+        if isinstance(reply, types.Part):
+            part = reply
+        else:
+            part = types.Part(text=str(reply(llm_request)) if callable(reply) else str(reply))
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[part]),
+            usage_metadata=types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=self.usage[0], candidates_token_count=self.usage[1]
+            ),
+        )
+
+    @property
+    def prompts(self) -> list[str]:
+        return [request_text(r) for r in self.requests]
+
+
+def request_text(request: LlmRequest) -> str:
+    """The text of a request's last user message: the prompt the node sent."""
+    for content in reversed(request.contents):
+        if content.role == "user":
+            return "".join(part.text or "" for part in content.parts or [])
+    return ""
+
+
+def fake_resolver(
+    llm: BaseLlm | None = None,
+    *,
+    spec: str = "fake/fake-model",
+    native: bool = False,
+    unavailable: str | None = None,
+) -> Resolver:
+    """Serves every role with `llm`, or refuses every role with `unavailable` as the reason."""
+    model = llm or ScriptedLlm()
+
+    def resolve(role: Role, agent: str | None = None) -> ResolvedModel:
+        if unavailable is not None:
+            raise ModelUnavailable(unavailable)
+        return ResolvedModel(spec=spec, provider=spec.partition("/")[0], native=native, llm=model)
+
+    return resolve

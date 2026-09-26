@@ -10,6 +10,7 @@ from augury.tui.app import AuguryApp
 from augury.tui.widgets.health_bar import HealthBar
 from augury.tui.widgets.help_overlay import HelpOverlay
 from augury.tui.widgets.status_line import StatusLine
+from tests.helpers import ScriptedLlm, fake_resolver
 from tests.tui.conftest import NOW, until
 from tests.tui.test_items_table import CJK
 
@@ -19,6 +20,14 @@ async def test_health_bar_before_any_scout(make_app):
     async with app.run_test(size=(120, 30)):
         line = app.query_one(HealthBar).render().plain
         assert "Scout: never" in line and "Sources: 3 ✓" in line and "AI: not configured" in line
+
+
+async def test_health_bar_shows_each_configured_role(make_app):
+    app = make_app(resolver=fake_resolver(ScriptedLlm()))
+    async with app.run_test(size=(140, 30)):
+        line = app.query_one(HealthBar).render().plain
+        assert "fast: fake ✓" in line and "smart: fake ✓" in line
+        assert "not configured" not in line
 
 
 async def test_health_bar_after_a_scout(make_app):

@@ -26,7 +26,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-providers = []
+providers = [
+    "litellm>=1.84 ; python_full_version < '3.15'",
+]
 
 [project.scripts]
 augury = "augury.cli:main"

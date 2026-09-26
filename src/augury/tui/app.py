@@ -32,6 +32,7 @@ from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import AppPaths
 from augury.core.text import strip_control_chars
 from augury.extract.service import get_or_extract
+from augury.llm.resolver import Resolver, RoleStatus, default_resolver, role_statuses
 from augury.sources.http import HttpClient, PoliteClient
 from augury.tui.clipboard import copy_and_tell, copy_selection
 from augury.tui.health import load_health
@@ -143,6 +144,7 @@ class AuguryApp(App[None]):
         http_factory: Callable[[HttpConfig], HttpClient] = PoliteClient,
         reader_debounce: Callable[[], Awaitable[None]] | None = None,
         editor_runner: EditorRunner = run_editor_subprocess,
+        resolver: Resolver | None = None,
     ) -> None:
         super().__init__()
         self.conn, self.config, self.paths, self.now = conn, config, paths, now
@@ -161,6 +163,9 @@ class AuguryApp(App[None]):
         self._extracting: str | None = None
         self._items_count: tuple[int, int] | None = None  # (listed, total) for the Items title
         self.scouting = False
+        self.resolver: Resolver = resolver or default_resolver(config)
+        # Config and keys don't change while the app runs, so this is computed once.
+        self.ai: tuple[RoleStatus, ...] = role_statuses(config, self.resolver)
 
     def compose(self) -> ComposeResult:
         yield HealthBar(id="health")
@@ -285,7 +290,7 @@ class AuguryApp(App[None]):
 
     def refresh_health(self) -> None:
         snapshot = load_health(
-            self.conn, self.now(), scouting=self.scouting, new_since=self.last_visit
+            self.conn, self.now(), scouting=self.scouting, new_since=self.last_visit, ai=self.ai
         )
         self.query_one(HealthBar).snapshot = snapshot
 

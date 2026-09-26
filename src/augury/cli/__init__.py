@@ -13,6 +13,7 @@ from augury.core.config import ConfigError, load_config, load_raw_toml
 from augury.core.db.open import open_db
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import HOME_ENV, app_paths
+from augury.core.secrets import load_env_file
 from augury.sources.http import PoliteClient
 
 
@@ -21,6 +22,7 @@ from augury.sources.http import PoliteClient
 @click.pass_context
 def main(ctx: click.Context) -> None:
     """Augury: a terminal-native AI digest reader."""
+    load_env_file(app_paths())  # before any command, so every model sees the keys
     if ctx.invoked_subcommand is None:
         _run_tui()
 

@@ -1,0 +1,7 @@
+# Default model per role, in LiteLLM's provider/model format (spec §5.1). Chosen on 2026-09-25
+# from https://ai.google.dev/gemini-api/docs/pricing. config.toml [models] overrides these.
+[models]
+# triage and TL;DRs: many calls a day, so the cost-efficient Flash tier
+fast = "gemini/gemini-3.5-flash-lite"
+# discovery (M3) and Ask (M4): fewer, harder calls
+smart = "gemini/gemini-3.1-pro-preview"

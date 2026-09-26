@@ -35,6 +35,14 @@ def test_config_reports_an_invalid_config_toml(paths):
     assert "not valid TOML" in result.output
 
 
+def test_config_never_shows_a_key_from_the_environment_or_env_file(paths, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "sk-should-not-show")
+    paths.env_file.write_text("GEMINI_API_KEY=sk-should-not-show\n")
+    result = CliRunner().invoke(main, ["config"])
+    assert result.exit_code == 0, result.output
+    assert "sk-should-not-show" not in result.output
+
+
 def theme_line(output: str) -> str:
     return next(line.strip() for line in output.splitlines() if "tui.theme =" in line)
 

@@ -8,6 +8,7 @@ from rich.text import Text
 
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
+from augury.llm.resolver import RoleStatus
 from augury.tui.query import count_new
 
 
@@ -21,6 +22,7 @@ class HealthSnapshot:
     scouting: bool = False
     enrich_error: str | None = None
     new_since: datetime | None = None  # the last visit's start; None on a first launch
+    ai: tuple[RoleStatus, ...] = ()
 
 
 def load_health(
@@ -29,6 +31,7 @@ def load_health(
     *,
     scouting: bool = False,
     new_since: datetime | None = None,
+    ai: tuple[RoleStatus, ...] = (),
 ) -> HealthSnapshot:
     last = RunsRepo(conn).last("scout", statuses=("ok", "partial", "failed"))
     counts = Counter(r.health for r in SourcesRepo(conn).list_all(enabled_only=True))
@@ -41,6 +44,7 @@ def load_health(
         scouting=scouting,
         enrich_error=last.stats.get("enrich_error") if last else None,
         new_since=new_since,
+        ai=ai,
     )
 
 
@@ -78,5 +82,13 @@ def health_line(s: HealthSnapshot, palette: Mapping[str, str]) -> Text:
         line.append(f" {degraded} ⚠", style=palette.get("warning", ""))
     if broken := s.sources.get("broken", 0):
         line.append(f" {broken} ✗", style=palette.get("error", ""))
-    line.append("  │  AI: not configured", style="dim")
+    if not any(r.ok for r in s.ai):
+        line.append("  │  AI: not configured", style="dim")  # exactly the M1 text
+        return line
+    line.append("  │  ")
+    for i, r in enumerate(s.ai):
+        if i:
+            line.append("  ")
+        line.append(f"{r.role}: {r.provider} ")
+        line.append("✓" if r.ok else "✗", style=palette.get("success" if r.ok else "error", ""))
     return line

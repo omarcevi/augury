@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import shlex
 import sqlite3
 import subprocess
@@ -31,6 +32,10 @@ if TYPE_CHECKING:
 
 SettingSource = Literal["default", "config.toml", "last used, ui_state.json", "running"]
 EditorRunner = Callable[[list[str]], object]
+MASKED_VALUE = "••••••"
+# Config never holds a key (keys live in the environment or .env) -- this is a tripwire in
+# case a future section ever grows one, so it can never be echoed on the config page/CLI.
+_SECRET_FIELD = re.compile(r"(?:^|_)(?:api_key|key|secret|password|token)$")
 
 
 def run_editor_subprocess(cmd: list[str]) -> None:
@@ -68,6 +73,8 @@ def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[S
             raw_section = {}
         for field_name in type(section).model_fields:
             value = getattr(section, field_name)
+            if _SECRET_FIELD.search(field_name) and value:
+                value = MASKED_VALUE
             source: SettingSource = "config.toml" if field_name in raw_section else "default"
             rows.append(SettingRow(section_name, field_name, value, source))
     return rows

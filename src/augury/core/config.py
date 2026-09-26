@@ -1,15 +1,64 @@
 import tomllib
+from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+)
 
 from augury.core.paths import AppPaths
 
 
 class _Section(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+AGENTS = ("triage", "summarizer", "discovery", "ask")
+
+
+def _packaged_default_models() -> dict[str, str]:
+    text = files("augury.llm").joinpath("defaults.toml").read_text(encoding="utf-8")
+    return dict(tomllib.loads(text)["models"])
+
+
+DEFAULT_MODELS = _packaged_default_models()
+
+
+def _model_spec(value: str) -> str:
+    provider, sep, name = value.partition("/")
+    if not (provider and sep and name):
+        raise ValueError(f"{value!r} must look like provider/model, e.g. gemini/<model-id>")
+    return value
+
+
+ModelSpec = Annotated[str, AfterValidator(_model_spec)]
+
+
+class ModelsConfig(_Section):
+    fast: ModelSpec = DEFAULT_MODELS["fast"]
+    smart: ModelSpec = DEFAULT_MODELS["smart"]
+    overrides: dict[str, ModelSpec] = Field(default_factory=dict)  # per-agent pins
+
+    @field_validator("overrides")
+    @classmethod
+    def _known_agents(cls, value: dict[str, str]) -> dict[str, str]:
+        unknown = sorted(set(value) - set(AGENTS))
+        if unknown:
+            raise ValueError(f"unknown agent(s): {', '.join(unknown)} (known: {', '.join(AGENTS)})")
+        return value
+
+
+class GoogleConfig(_Section):
+    # Vertex AI only. API keys never go in config.toml (spec N5); they live in .env.
+    project: str = ""
+    location: str = ""
 
 
 class ScoutConfig(_Section):
@@ -53,6 +102,8 @@ class Config(_Section):
     http: HttpConfig = Field(default_factory=HttpConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
     tui: TuiConfig = Field(default_factory=TuiConfig)
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
+    google: GoogleConfig = Field(default_factory=GoogleConfig)
 
 
 class Interests(_Section):

@@ -46,6 +46,24 @@ def test_effective_settings_ignores_a_raw_section_that_is_not_a_table():
     assert rows[("tui", "theme")].source == "default"
 
 
+def test_effective_settings_masks_a_secret_looking_field():
+    # Config never actually holds a key (keys live in the environment or .env) -- this is a
+    # tripwire, so a field added to some future section that looks like one is never echoed.
+    class _Section(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+    class StandInSection(_Section):
+        api_key: str = "sk-live-123"
+        daily_tokens: int = 40  # must NOT be treated as a secret
+
+    class StandInConfig(_Section):
+        creds: StandInSection = Field(default_factory=StandInSection)
+
+    rows = {r.field: r for r in effective_settings(StandInConfig(), {})}
+    assert rows["api_key"].value == "••••••"
+    assert rows["daily_tokens"].value == 40
+
+
 def test_effective_settings_picks_up_a_field_no_code_here_has_ever_heard_of():
     # Proves the renderer is generic: it walks `type(config).model_fields`, so a field
     # added to TuiConfig (or any section) by a parallel lane needs no change here.
