@@ -151,7 +151,7 @@ class Config(_Section):
 
 
 class Interests(_Section):
-    audience: str = ""
+    about: str = ""
     topics: list[str] = Field(default_factory=list)
     avoid: list[str] = Field(default_factory=list)
 
@@ -209,4 +209,5 @@ def load_interests(paths: AppPaths) -> Interests:
     try:
         return Interests.model_validate(data)
     except ValidationError as e:
-        raise ConfigError(_describe(path, e)) from e
+        hint = "Run `augury init` to recreate it (it asks before overwriting)."
+        raise ConfigError(f"{_describe(path, e)}\n{hint}") from e

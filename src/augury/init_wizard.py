@@ -16,7 +16,7 @@ PROVIDERS = ("gemini", "vertex_ai", "litellm", "none")
 
 @dataclass
 class InitAnswers:
-    audience: str = ""
+    about: str = ""
     topics: list[str] = field(default_factory=list)
     avoid: list[str] = field(default_factory=list)
     community: bool = True
@@ -33,6 +33,14 @@ def _split(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+def _display_path(path: Path) -> str:
+    """The interests.yaml path, with ~ for the home dir when the path is under it."""
+    try:
+        return f"~/{path.relative_to(Path.home())}"
+    except ValueError:
+        return str(path)
+
+
 def defaults() -> InitAnswers:
     return InitAnswers()
 
@@ -47,12 +55,9 @@ def _ask_spec(label: str) -> str:
 
 
 def _ask_env_name() -> str:
+    click.echo("Environment variable for its API key (blank if none).\n     e.g.  OPENAI_API_KEY")
     while True:
-        name = click.prompt(
-            "Environment variable for its API key (e.g. OPENAI_API_KEY; blank if none)",
-            default="",
-            show_default=False,
-        ).strip()
+        name = click.prompt(">", default="", show_default=False, prompt_suffix=" ").strip()
         if not name or ENV_NAME.match(name):
             return name
         click.echo("Use letters, digits and underscores, e.g. OPENAI_API_KEY.")
@@ -91,32 +96,45 @@ def _ask_provider(answers: InitAnswers) -> None:
             ).strip()
 
 
-def ask() -> InitAnswers:
-    audience = click.prompt(
-        "Who do you read for? (e.g. ML engineers who ship to production)",
-        default="",
-        show_default=False,
-    ).strip()
-    topics = _split(
-        click.prompt("Topics you care about (comma-separated)", default="", show_default=False)
+def ask(paths: AppPaths) -> InitAnswers:
+    click.echo(
+        "These answers tell the AI triage what matters to you (with an API key; without one,\n"
+        "the digest is ranked by your ★ likes). Change them any time in "
+        f"{_display_path(paths.interests_file)}.\n"
     )
-    avoid = _split(click.prompt("Topics to skip (comma-separated)", default="", show_default=False))
+    click.echo(
+        "1/3  What do you do? One line, so the AI can judge what's useful to you.\n"
+        "     e.g.  ML engineer building RAG apps · PhD student in robotics ·\n"
+        "           data scientist in fintech · curious about AI"
+    )
+    about = click.prompt(">", default="", show_default=False, prompt_suffix=" ").strip()
+    click.echo(
+        "\n2/3  Topics you care about. Anything, broad or niche, comma-separated.\n"
+        "     e.g.  LLM agents, RAG, diffusion models, robotics, AI safety,\n"
+        "           on-device inference, reinforcement learning"
+    )
+    topics = _split(click.prompt(">", default="", show_default=False, prompt_suffix=" "))
+    click.echo(
+        "\n3/3  Topics to skip (optional), comma-separated.\n"
+        "     e.g.  crypto, AI art, funding rounds"
+    )
+    avoid = _split(click.prompt(">", default="", show_default=False, prompt_suffix=" "))
     community = click.confirm(
         "Include Hugging Face community posts? (busier, more self-promotion)", default=True
     )
+    click.echo(
+        "\nFolder for Markdown digests (blank to skip).\n"
+        "     e.g.  a folder inside your Obsidian vault"
+    )
     export = ""
     while True:
-        export = click.prompt(
-            "Folder for Markdown digests (e.g. a folder inside your Obsidian vault; blank to skip)",
-            default="",
-            show_default=False,
-        ).strip()
+        export = click.prompt(">", default="", show_default=False, prompt_suffix=" ").strip()
         target = Path(export).expanduser()
         if not export or target.is_dir() or target.parent.is_dir():  # a new leaf folder is fine
             break
         click.echo(f"{export} isn't a directory (and neither is its parent).")
     answers = InitAnswers(
-        audience, topics, avoid, community, str(Path(export).expanduser()) if export else ""
+        about, topics, avoid, community, str(Path(export).expanduser()) if export else ""
     )
     _ask_provider(answers)
     return answers
@@ -127,7 +145,7 @@ def apply(
 ) -> list[Path]:
     paths.ensure()
     written: list[Path] = []
-    interests = {"audience": answers.audience, "topics": answers.topics, "avoid": answers.avoid}
+    interests = {"about": answers.about, "topics": answers.topics, "avoid": answers.avoid}
     config: dict[str, object] = {"export": {"path": answers.export_path}}
     if answers.models:
         config["models"] = dict(answers.models)

@@ -16,7 +16,7 @@ def test_wizard_writes_valid_files_and_applies_choices(paths, tmp_path):
     result = CliRunner().invoke(main, ["init"], input=answers)
     assert result.exit_code == 0, result.output
     interests = load_interests(paths)
-    assert (interests.audience, interests.topics, interests.avoid) == (
+    assert (interests.about, interests.topics, interests.avoid) == (
         "ML engineers",
         ["agents", "rag"],
         ["crypto"],
@@ -25,6 +25,18 @@ def test_wizard_writes_valid_files_and_applies_choices(paths, tmp_path):
     assert config.export.path == str(export_dir)
     assert SourcesRepo(open_db(paths)).get("hf-community").source.enabled is False  # type: ignore[union-attr]
     assert "augury scout" in result.output
+
+
+def test_the_interactive_wizard_shows_numbered_questions_with_examples(paths):
+    result = CliRunner().invoke(main, ["init"], input="\n\n\ny\n\n\n\n")
+    assert result.exit_code == 0, result.output
+    assert "1/3  What do you do?" in result.output
+    assert "e.g.  ML engineer building RAG apps" in result.output
+    assert "2/3  Topics you care about." in result.output
+    assert "e.g.  LLM agents, RAG, diffusion models" in result.output
+    assert "3/3  Topics to skip (optional)" in result.output
+    assert "e.g.  crypto, AI art, funding rounds" in result.output
+    assert str(paths.interests_file) in result.output  # told where to change them later
 
 
 def test_a_bad_export_path_is_asked_again(paths, tmp_path):
@@ -66,17 +78,17 @@ def test_overwrite_existing_files_with_new_answers(paths):
     """Interactive init with overwrite confirmation replaces files."""
     # First run
     paths.config_file.write_text('[tui]\ntheme = "nord"\n')
-    paths.interests_file.write_text("audience: old\n")
+    paths.interests_file.write_text("about: old\n")
 
     # Second run: wizard asks for answers first, then overwrite confirmation
-    # Order: audience, topics, avoid, community, export_path, then overwrite prompt
-    answers = "new audience\nnew topic\n\ny\n\n\n\ny\n"
+    # Order: about, topics, avoid, community, export_path, then overwrite prompt
+    answers = "new about\nnew topic\n\ny\n\n\n\ny\n"
     result = CliRunner().invoke(main, ["init"], input=answers)
     assert result.exit_code == 0, result.output
 
     # Check that new answers are written
     interests = load_interests(paths)
-    assert interests.audience == "new audience"
+    assert interests.about == "new about"
     assert interests.topics == ["new topic"]
 
     # Check that existing tui config is overwritten (not preserved)

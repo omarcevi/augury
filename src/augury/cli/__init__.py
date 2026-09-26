@@ -83,7 +83,7 @@ def init(yes: bool) -> None:
     paths = app_paths()
     conn = open_db(paths)
     try:
-        answers = init_wizard.defaults() if yes else init_wizard.ask()
+        answers = init_wizard.defaults() if yes else init_wizard.ask(paths)
         existing = [p for p in (paths.config_file, paths.interests_file) if p.exists()]
         overwrite = (
             bool(existing)

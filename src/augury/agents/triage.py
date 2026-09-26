@@ -164,7 +164,7 @@ def _idx_list(batch: Sequence[BatchItem]) -> str:
 
 def batch_prompt(batch: Sequence[BatchItem], interests: Interests) -> str:
     profile = json.dumps(
-        {"audience": interests.audience, "topics": interests.topics, "avoid": interests.avoid},
+        {"about": interests.about, "topics": interests.topics, "avoid": interests.avoid},
         ensure_ascii=False,
     )
     items = json.dumps([b.payload for b in batch], ensure_ascii=False)

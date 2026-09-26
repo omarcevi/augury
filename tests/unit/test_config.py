@@ -40,15 +40,22 @@ def test_export_path_is_optional(paths):
 
 
 def test_interests_yaml_is_loaded(paths):
-    paths.interests_file.write_text("audience: ML engineers\ntopics: [agents, rag]\n")
+    paths.interests_file.write_text("about: ML engineer\ntopics: [agents, rag]\n")
     interests = load_interests(paths)
-    assert interests.audience == "ML engineers"
+    assert interests.about == "ML engineer"
     assert interests.topics == ["agents", "rag"]
 
 
 def test_empty_interests_file_is_fine(paths):
     paths.interests_file.write_text("")
     assert load_interests(paths).avoid == []
+
+
+def test_an_old_audience_key_gives_a_clear_config_error(paths):
+    paths.interests_file.write_text("audience: ML engineers\n")
+    with pytest.raises(ConfigError, match="augury init") as err:
+        load_interests(paths)
+    assert "audience" in str(err.value)
 
 
 def test_remember_state_is_on_and_reopening_the_last_article_is_off_by_default(paths):
