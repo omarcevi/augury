@@ -6,13 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from google.adk.apps import App
-from google.adk.runners import InMemoryRunner
 from google.adk.workflow import Workflow, node
 from google.genai import types
 from pydantic import BaseModel
 
 from augury.agents.enrich import enrich_new_articles
+from augury.agents.llm_step import run_workflow
 from augury.agents.normalize import store_items
 from augury.core.clock import utcnow
 from augury.core.config import Config
@@ -24,7 +23,6 @@ from augury.sources.base import Adapter
 from augury.sources.http import HttpClient
 from augury.sources.registry import ADAPTERS
 
-APP_NAME = "augury"
 _log = logging.getLogger(__name__)
 
 
@@ -145,14 +143,6 @@ def build_scout_workflow(
     )
 
 
-async def _run_workflow(workflow: Workflow) -> None:
-    runner = InMemoryRunner(app=App(name=APP_NAME, root_agent=workflow))
-    session = await runner.session_service.create_session(app_name=APP_NAME, user_id="local")
-    message = types.Content(role="user", parts=[types.Part.from_text(text="scout")])
-    async for _ in runner.run_async(user_id="local", session_id=session.id, new_message=message):
-        pass
-
-
 async def run_scout(deps: ScoutDeps, *, only: str | None = None) -> ScoutReport:
     with ScoutLock(deps.lock_path):
         runs = RunsRepo(deps.conn)
@@ -167,7 +157,7 @@ async def run_scout(deps: ScoutDeps, *, only: str | None = None) -> ScoutReport:
         sink: list[ScoutReport] = []
         try:
             if sources:
-                await _run_workflow(build_scout_workflow(deps, sources, run_id, sink))
+                await run_workflow(build_scout_workflow(deps, sources, run_id, sink), "scout")
             else:
                 sink.append(ScoutReport(run_id=run_id, status="ok", sources={}, new_items=0))
         except Exception as exc:
