@@ -25,6 +25,7 @@ from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.lock import ScoutAlreadyRunning, ScoutLock
 from augury.core.models import FetchResult, Source
+from augury.export.markdown import export_daily
 from augury.llm.resolver import ModelUnavailable, Resolver, default_resolver
 from augury.sources.base import Adapter
 from augury.sources.http import HttpClient
@@ -52,6 +53,8 @@ class ScoutReport(BaseModel):
     digest: DigestStats | None = None  # M2
     digest_error: str | None = None
     prefetch: PrefetchStats | None = None  # M2
+    exported: str | None = None  # M2: the Markdown file written after this scout
+    export_error: str | None = None
 
     def problems(self) -> list[str]:
         """Everything that went wrong, for runs.error (spec §11: nothing fails silently)."""
@@ -64,6 +67,8 @@ class ScoutReport(BaseModel):
             found.append(f"digest: {self.digest_error}")
         if self.prefetch is not None and (self.prefetch.stopped or self.prefetch.error):
             found.append(f"prefetch: {self.prefetch.stopped or self.prefetch.error}")
+        if self.export_error:
+            found.append(f"export: {self.export_error}")
         return found
 
 
@@ -232,6 +237,19 @@ def build_scout_workflow(
         sink.append(report)
         return report
 
+    def export(node_input: ScoutReport) -> ScoutReport:
+        if not deps.config.export.path.strip():  # export is off (spec §8.5)
+            sink.append(node_input)
+            return node_input
+        try:
+            path = export_daily(deps.conn, deps.config, local_day(deps.now()), run_id=run_id)
+        except Exception as exc:  # a bad folder, a locked db or a bug: reported, never fatal
+            report = node_input.model_copy(update={"export_error": f"{type(exc).__name__}: {exc}"})
+        else:
+            report = node_input.model_copy(update={"exported": str(path) if path else None})
+        sink.append(report)
+        return report
+
     return Workflow(
         name="scout",
         edges=[
@@ -242,6 +260,7 @@ def build_scout_workflow(
             (enrich, triage),
             (triage, rank),
             (rank, prefetch),
+            (prefetch, export),
         ],
     )
 

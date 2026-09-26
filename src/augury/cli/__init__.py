@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import date
 
 import click
 
@@ -8,12 +9,13 @@ from augury import doctor as doctor_checks
 from augury import schedule as scheduling
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.cli.output import safe
-from augury.core.clock import utcnow
+from augury.core.clock import local_day, utcnow
 from augury.core.config import Config, ConfigError, load_config, load_interests, load_raw_toml
 from augury.core.db.open import open_db
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import HOME_ENV, app_paths
 from augury.core.secrets import load_env_file
+from augury.export.markdown import export_daily, last_scout_run_id
 from augury.llm.resolver import default_resolver
 from augury.sources.http import PoliteClient
 
@@ -143,6 +145,7 @@ def format_report(report: ScoutReport) -> str:
         lines.append(f"  ! {'enrichment':<16} {safe(report.enrich_error)}")
     lines.extend(_triage_lines(report))
     lines.extend(_prefetch_lines(report))
+    lines.extend(_export_lines(report))
     return "\n".join(lines)
 
 
@@ -172,6 +175,12 @@ def _prefetch_lines(report: ScoutReport) -> list[str]:
     elif p.error:
         line += f" · {safe(p.error)}"
     return [line]
+
+
+def _export_lines(report: ScoutReport) -> list[str]:
+    if report.export_error:
+        return [f"  ✗ {'export':<16} {safe(report.export_error)}"]
+    return [f"  ✓ {'export':<16} {safe(report.exported)}"] if report.exported else []
 
 
 @main.command()
@@ -209,6 +218,34 @@ def scout(only: str | None) -> None:
     click.echo(format_report(report))
     if report.status == "failed":
         raise SystemExit(1)
+
+
+@main.command("export")
+@click.option("--day", "day_text", metavar="YYYY-MM-DD", help="Which day (default: today).")
+def export_command(day_text: str | None) -> None:
+    """Write a day's digest as Markdown into [export] path."""
+    paths = app_paths()
+    try:
+        config = load_config(paths)
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+    if not config.export.path.strip():
+        raise click.ClickException(
+            "Markdown export is off: set [export] path in config.toml, or run `augury init`."
+        )
+    try:
+        day = date.fromisoformat(day_text) if day_text else local_day(utcnow())
+    except ValueError:
+        raise click.BadParameter("use YYYY-MM-DD", param_hint="--day") from None
+    conn = open_db(paths)
+    try:
+        path = export_daily(conn, config, day, run_id=last_scout_run_id(conn, day))
+    except Exception as e:  # any failure is a clean message, never a traceback
+        message = f"could not write the export: {type(e).__name__}: {e}"
+        raise click.ClickException(safe(message)) from e
+    finally:
+        conn.close()
+    click.echo(safe(f"wrote {path}"))
 
 
 @main.group("schedule")

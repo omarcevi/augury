@@ -1,5 +1,7 @@
 import asyncio
+import sqlite3
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
@@ -7,7 +9,7 @@ import pytest
 from augury.agents import scout
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.core.clock import local_day
-from augury.core.config import Config, ScoutConfig
+from augury.core.config import Config, ExportConfig, ScoutConfig
 from augury.core.db.digest_repo import DigestRepo
 from augury.core.db.open import open_db
 from augury.core.db.runs_repo import RunsRepo
@@ -219,3 +221,51 @@ async def test_without_a_key_the_scout_reads_nothing_ahead(paths):
     d.config = Config(scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=5))
     report = await run_scout(d)
     assert report.status == "ok" and report.prefetch is None
+
+
+async def test_the_scout_exports_the_day_when_a_path_is_set(paths, tmp_path):
+    d = deps(paths, OK_ADAPTERS)
+    d.config = Config(
+        scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=0),
+        export=ExportConfig(path=str(tmp_path / "notes")),
+    )
+    report = await run_scout(d)
+    assert report.exported is not None
+    assert f"run_id: {report.run_id}" in Path(report.exported).read_text(encoding="utf-8")
+
+
+async def test_an_export_failure_is_reported_not_fatal(paths, tmp_path):
+    blocker = tmp_path / "a-file"
+    blocker.write_text("not a folder")
+    d = deps(paths, OK_ADAPTERS)
+    d.config = Config(
+        scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=0),
+        export=ExportConfig(path=str(blocker)),
+    )
+    report = await run_scout(d)
+    assert report.status == "ok" and report.export_error is not None
+    last = RunsRepo(d.conn).last("scout")
+    assert last is not None and "export:" in (last.error or "")
+
+
+async def test_without_an_export_path_the_scout_writes_nothing(paths):
+    report = await run_scout(deps(paths, OK_ADAPTERS))
+    assert report.status == "ok" and report.exported is None and report.export_error is None
+
+
+async def test_any_export_failure_is_reported_not_fatal(paths, tmp_path, monkeypatch):
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")  # not an OSError
+
+    monkeypatch.setattr(scout, "export_daily", broken)
+    d = deps(paths, OK_ADAPTERS)
+    d.config = Config(
+        scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=0),
+        export=ExportConfig(path=str(tmp_path / "notes")),
+    )
+    report = await run_scout(d)
+    assert report.status == "ok" and report.new_items == 4 and report.digest is not None
+    assert report.export_error == "OperationalError: database is locked"
+    last = RunsRepo(d.conn).last("scout")
+    assert last is not None and last.status == "ok"
+    assert last.error == "export: OperationalError: database is locked"
