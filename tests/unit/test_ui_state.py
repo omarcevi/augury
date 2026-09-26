@@ -7,7 +7,15 @@ import pytest
 
 from augury.tui import ui_state
 from augury.tui.query import DIGEST_PRESET, ItemFilter
-from augury.tui.ui_state import FilterState, UiSession, UiState, effective_theme, load, save
+from augury.tui.ui_state import (
+    FilterState,
+    UiSession,
+    UiState,
+    effective_theme,
+    load,
+    resolve_theme,
+    save,
+)
 
 NOW = datetime(2026, 9, 25, 9, 0, 30, 123456, tzinfo=UTC)
 THEMES = ("textual-dark", "nord", "dracula")
@@ -138,6 +146,14 @@ def test_effective_theme_prefers_the_saved_one_then_the_config():
     assert effective_theme(None, "dracula", THEMES) == "dracula"
     assert effective_theme("gone-theme", "dracula", THEMES) == "dracula"
     assert effective_theme("gone-theme", "also-gone", THEMES) == "textual-dark"
+
+
+def test_resolve_theme_also_says_which_one_won():
+    # The config page (and `augury config`) shows where the running theme came from.
+    assert resolve_theme("nord", "dracula", THEMES) == ("nord", "saved")
+    assert resolve_theme(None, "dracula", THEMES) == ("dracula", "configured")
+    assert resolve_theme("gone-theme", "dracula", THEMES) == ("dracula", "configured")
+    assert resolve_theme("gone-theme", "also-gone", THEMES) == ("textual-dark", "fallback")
 
 
 def test_a_first_visit_has_no_last_visit_and_is_saved_at_once(paths):

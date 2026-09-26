@@ -4,7 +4,7 @@ import shlex
 import sqlite3
 import subprocess
 from collections import Counter
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import VerticalScroll
+from textual.theme import BUILTIN_THEMES
 from textual.widgets import Static
 
 from augury import __version__ as augury_version
@@ -23,11 +24,12 @@ from augury.core.db.connect import vec_version
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.paths import AppPaths
 from augury.tui.safe_text import text
+from augury.tui.ui_state import resolve_theme
 
 if TYPE_CHECKING:
     from augury.tui.app import AuguryApp
 
-SettingSource = Literal["default", "config.toml"]
+SettingSource = Literal["default", "config.toml", "last used, ui_state.json", "running"]
 EditorRunner = Callable[[list[str]], object]
 
 
@@ -43,6 +45,7 @@ class SettingRow:
     field: str
     value: object
     source: SettingSource
+    note: str = ""  # e.g. what config.toml says when something else wins
 
 
 def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[SettingRow]:
@@ -68,6 +71,36 @@ def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[S
             source: SettingSource = "config.toml" if field_name in raw_section else "default"
             rows.append(SettingRow(section_name, field_name, value, source))
     return rows
+
+
+def theme_setting(
+    config: Config,
+    raw_toml: Mapping[str, Any],
+    saved: str | None,
+    themes: Collection[str],
+    running: str | None = None,
+) -> SettingRow:
+    """tui.theme as the app runs it (P1): a theme picked with `t` (ui_state.json) wins over
+    config.toml's, and one that isn't available falls back -- ui_state's own rule. `running` is
+    the app's theme, when there is an app: config.toml may have changed since it launched."""
+    theme, origin = resolve_theme(saved, config.tui.theme, themes)
+    raw_tui = raw_toml.get("tui")
+    in_file = isinstance(raw_tui, Mapping) and "theme" in raw_tui
+    if running is not None and running != theme:  # it keeps its theme until the next launch
+        if origin == "configured" and in_file:
+            note = f"config.toml: {config.tui.theme} — applies on next launch"
+        elif origin == "fallback" and in_file:
+            note = f"config.toml: {config.tui.theme} isn't available — {theme} on next launch"
+        else:
+            note = f"{theme} on next launch"
+        return SettingRow("tui", "theme", running, "running", note)
+    source: SettingSource = "default"
+    if origin == "saved":
+        source = "last used, ui_state.json"
+    elif origin == "configured" and in_file:
+        source = "config.toml"
+    note = f"config.toml: {config.tui.theme}" if in_file and config.tui.theme != theme else ""
+    return SettingRow("tui", "theme", theme, source, note)
 
 
 def ui_state_path(paths: AppPaths) -> Path:
@@ -98,13 +131,27 @@ class ConfigReport:
 
 
 def build_config_report(
-    conn: sqlite3.Connection, config: Config, paths: AppPaths, raw_toml: Mapping[str, Any]
+    conn: sqlite3.Connection,
+    config: Config,
+    paths: AppPaths,
+    raw_toml: Mapping[str, Any],
+    *,
+    saved_theme: str | None,
+    themes: Collection[str] = BUILTIN_THEMES,
+    running_theme: str | None = None,
 ) -> ConfigReport:
+    """`saved_theme` is ui_state.json's (the app passes its own copy); `themes` the available
+    ones (Textual's built-in ones, unless the app has more); `running_theme` the app's own."""
     records = SourcesRepo(conn).list_all()
     enabled = sum(1 for r in records if r.source.enabled)
     vec = vec_version(conn)
+    theme = theme_setting(config, raw_toml, saved_theme, themes, running_theme)
+    settings = [
+        theme if (row.section, row.field) == ("tui", "theme") else row
+        for row in effective_settings(config, raw_toml)
+    ]
     return ConfigReport(
-        settings=effective_settings(config, raw_toml),
+        settings=settings,
         paths=[
             ("config dir", str(paths.config_dir)),
             ("config.toml", str(paths.config_file)),
@@ -133,7 +180,8 @@ def build_config_report(
 def render_config_text(report: ConfigReport) -> str:
     lines = ["Settings"]
     for row in report.settings:
-        lines.append(f"  {row.section}.{row.field} = {row.value}  ({row.source})")
+        source = f"{row.source}; {row.note}" if row.note else row.source
+        lines.append(f"  {row.section}.{row.field} = {row.value}  ({source})")
     lines += ["", "Paths"]
     lines += [f"  {label}: {value}" for label, value in report.paths]
     lines += ["", "Sources"]

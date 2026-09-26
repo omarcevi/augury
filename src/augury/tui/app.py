@@ -1,10 +1,11 @@
 import asyncio
+import re
 import sqlite3
 import traceback
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import ClassVar
+from typing import ClassVar, get_args
 from urllib.parse import urlsplit
 
 from rich.console import RenderableType
@@ -13,6 +14,7 @@ from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
+from textual.dom import DOMNode
 from textual.geometry import Size
 from textual.reactive import reactive
 from textual.timer import Timer
@@ -34,7 +36,7 @@ from augury.sources.http import HttpClient, PoliteClient
 from augury.tui.clipboard import copy_and_tell, copy_selection
 from augury.tui.health import load_health
 from augury.tui.keymap import THEMES
-from augury.tui.layout import HIDDEN_COLUMNS, layout_for
+from augury.tui.layout import HIDDEN_COLUMNS, Layout, layout_for
 from augury.tui.query import (
     DATE_RANGES,
     DIGEST_PRESET,
@@ -90,6 +92,13 @@ _ITEMS_ONLY_ACTIONS = frozenset(
 # The mirror image: an action that only makes sense on the Config view (P3), disabled
 # everywhere else so its key (`e`) is harmless if a widget there doesn't shadow it.
 _CONFIG_ONLY_ACTIONS = frozenset({"edit_config"})
+# The screen's classes that theme.tcss keys layout rules on (`Screen.zen #reader`, ...), and what
+# those rules style besides the screen itself. A class change on the screen restyles every widget
+# under it: ~0.7 s per z or esc with a long paper (~1,900 widgets). _set_screen_classes restyles
+# only these instead; tests/tui/test_screen_classes.py fails if a rule styles anything else.
+SCREEN_CLASSES = frozenset({"reading", "zen", *(f"layout-{name}" for name in get_args(Layout))})
+SCREEN_CLASS_TARGETS = ("#items-pane", "#reader", "#search", "#chip-sources", "#chip-theme")
+_BARE_ID = re.compile(r"#[\w-]+")
 
 
 class AuguryApp(App[None]):
@@ -150,6 +159,7 @@ class AuguryApp(App[None]):
         self._scroll_frac = 0.0
         self._scroll_max = -1.0
         self._extracting: str | None = None
+        self._items_count: tuple[int, int] | None = None  # (listed, total) for the Items title
         self.scouting = False
 
     def compose(self) -> ComposeResult:
@@ -285,6 +295,8 @@ class AuguryApp(App[None]):
             widget.refresh()
         self.query_one(FilterChips).show_filter(self.item_filter, self.theme)
         self.reload_items()
+        if self.mode == "CONFIG":  # it shows the running theme
+            self.refresh_config()
 
     def reload_items(self, *, keep: str | None = None) -> None:
         # While reading, the open item stays listed and selected, whatever the filter says.
@@ -297,7 +309,8 @@ class AuguryApp(App[None]):
         )
         table = self.query_one(ItemsTable)
         table.show(rows, self.now(), self.get_css_variables())
-        self.query_one("#items-pane").border_title = f"Items ({len(rows)}/{total})"
+        self._items_count = len(rows), total
+        self.show_items_title()
         empty = self.query_one("#empty", Static)
         empty.display = not rows
         if not rows:
@@ -307,6 +320,17 @@ class AuguryApp(App[None]):
         table.display = bool(rows)
         if keep := keep or self.reading_id:
             table.select_key(keep)
+
+    def show_items_title(self) -> None:
+        """ "Items (12/84)", and the search query where the search box is too narrow to show it."""
+        if self._items_count is None:
+            return
+        listed, total = self._items_count
+        title = f"Items ({listed}/{total})"
+        search = self.item_filter.search
+        if search and self.query_one("#main").screen.has_class("layout-narrow"):
+            title += f' · "{search}"'
+        self.query_one("#items-pane").border_title = text(title)  # a str would be markup
 
     async def on_unmount(self) -> None:
         close = getattr(self.http, "aclose", None)
@@ -332,6 +356,7 @@ class AuguryApp(App[None]):
         themes = self.available_themes
         self.theme = effective_theme(session.previous.theme, self.config.tui.theme, themes)
         self.watch(self, "theme", session.remember_theme, init=False)  # `t` (or ctrl+p) from now on
+        self.watch(self, "theme", self.refresh_colors, init=False)  # and redraw what shows it
         if self.config.tui.remember_state:
             sources = {r.source.id for r in SourcesRepo(self.conn).list_all()}
             self.item_filter = session.previous.filter.to_filter(sources)
@@ -373,13 +398,29 @@ class AuguryApp(App[None]):
             reading_progress=min(1.0, max(0.0, self._scroll_frac)) if reading else None,
         )
 
+    def _set_screen_classes(self, classes: Mapping[str, bool]) -> None:
+        """Add (True) or remove (False) SCREEN_CLASSES on the items view's screen (even behind a
+        modal), restyling just the screen and SCREEN_CLASS_TARGETS rather than all of it."""
+        assert classes.keys() <= SCREEN_CLASSES, f"not a screen class: {set(classes)}"
+        screen = self.query_one("#main").screen
+        before = screen.classes
+        screen.update_classes(classes, update=False)
+        if screen.classes != before:
+            nodes: list[DOMNode] = [screen]
+            for selector in SCREEN_CLASS_TARGETS:
+                if _BARE_ID.fullmatch(selector):  # a cached lookup; a query walks every widget
+                    nodes.append(screen.query_one(selector))
+                else:  # every match, e.g. of "#filters Chip"
+                    nodes.extend(screen.query(selector))
+            self.stylesheet.update_nodes(nodes, animate=True)  # as a class change's own restyle
+
     def apply_layout(self, width: int) -> None:
         layout = layout_for(width)
         table = self.query_one(ItemsTable)
-        for name in ("wide", "medium", "narrow"):  # the table's screen, even behind a modal
-            table.screen.set_class(name == layout, f"layout-{name}")
+        self._set_screen_classes({f"layout-{name}": name == layout for name in get_args(Layout)})
         table.hidden_columns = HIDDEN_COLUMNS[layout]
         table.remeasure()
+        self.show_items_title()  # the query shows in it when narrow
 
     def on_resize(self, event: events.Resize) -> None:
         # No re-query: that would drop an item opened from the Unread view. The table
@@ -411,7 +452,7 @@ class AuguryApp(App[None]):
         self.reading_id, self._saved_progress = item_id, progress
         self._scroll_frac = progress if progress < 0.9 else 0.0  # finished items reopen at the top
         self._scroll_max = -1.0
-        self.screen.add_class("reading")
+        self._set_screen_classes({"reading": True})
         self.mode = "READ"
         # MarkdownViewer itself can't take focus; its document can, so the reader keys work.
         viewer.document.focus()
@@ -531,8 +572,9 @@ class AuguryApp(App[None]):
     def action_cycle_theme(self) -> None:
         names = [name for name in THEMES if name in self.available_themes]
         index = names.index(self.theme) if self.theme in names else -1
-        self.theme = names[(index + 1) % len(names)]
-        self.refresh_colors()
+        self.theme = names[(index + 1) % len(names)]  # the theme watcher redraws the rest
+        if not self.query_one("#chip-theme").display:  # no room for it below 160 columns
+            self.notify(f"Theme: {self.theme}", markup=False, timeout=2)
 
     def apply_filter(self, f: ItemFilter) -> None:
         self.item_filter = f
@@ -547,7 +589,7 @@ class AuguryApp(App[None]):
         if self.reading_id is not None:
             self._refresh_row(self.reading_id)
         self.reading_id = None
-        self.screen.remove_class("reading", "zen")
+        self._set_screen_classes({"reading": False, "zen": False})
         self.query_one(ItemsTable).focus()
         self.mode = "NORMAL"
 
@@ -580,7 +622,17 @@ class AuguryApp(App[None]):
         self.refresh_bindings()
 
     def refresh_config(self) -> None:
-        report = build_config_report(self.conn, self.config, self.paths, load_raw_toml(self.paths))
+        raw = load_raw_toml(self.paths)
+        saved = self.session.state.theme if self.session else None  # as `t` last saved it
+        report = build_config_report(
+            self.conn,
+            self.config,
+            self.paths,
+            raw,
+            saved_theme=saved,
+            themes=self.available_themes,
+            running_theme=self.theme,  # `e` may have changed config.toml's since launch
+        )
         self.query_one(ConfigView).show(report)
 
     def action_edit_config(self) -> None:
@@ -640,10 +692,10 @@ class AuguryApp(App[None]):
         row that no longer exists."""
         if self.reading_id is not None and ItemsRepo(self.conn).get(self.reading_id) is None:
             self.reading_id = None
-            self.screen.remove_class("reading", "zen")
+            self._set_screen_classes({"reading": False, "zen": False})
 
     def action_toggle_zen(self) -> None:
-        self.screen.toggle_class("zen")
+        self._set_screen_classes({"zen": not self.query_one("#main").screen.has_class("zen")})
 
     def action_copy_article(self) -> None:
         content = ContentsRepo(self.conn).get(self.reading_id) if self.reading_id else None

@@ -123,12 +123,24 @@ def save(paths: AppPaths, state: UiState) -> bool:
         return False
 
 
+ThemeOrigin = Literal["saved", "configured", "fallback"]
+
+
+def resolve_theme(
+    saved: str | None, configured: str, available: Collection[str]
+) -> tuple[str, ThemeOrigin]:
+    """P1: the theme last picked in the app, else config.toml's, else Textual's default; and
+    which of those it is (the config page shows where the running theme came from)."""
+    if saved and saved in available:
+        return saved, "saved"
+    if configured and configured in available:
+        return configured, "configured"
+    return FALLBACK_THEME, "fallback"
+
+
 def effective_theme(saved: str | None, configured: str, available: Collection[str]) -> str:
     """P1: the theme last picked in the app, else config.toml's, else Textual's default."""
-    for name in (saved, configured):
-        if name and name in available:
-            return name
-    return FALLBACK_THEME
+    return resolve_theme(saved, configured, available)[0]
 
 
 class UiSession:

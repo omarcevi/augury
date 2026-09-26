@@ -1,11 +1,18 @@
+import pytest
+from click.testing import CliRunner
 from textual.widgets import ContentSwitcher
 
 from augury.agents.normalize import store_items
+from augury.cli import main
+from augury.core.config import Config, ScoutConfig, TuiConfig
 from augury.core.models import RawItem
+from augury.tui.ui_state import UiState, save
 from augury.tui.widgets.config_view import ConfigView
 from augury.tui.widgets.confirm_modal import ConfirmModal
+from augury.tui.widgets.filter_chips import Chip
 from augury.tui.widgets.status_line import StatusLine
 from tests.tui.conftest import NOW
+from tests.tui.test_config_view import theme_line
 
 
 def seed_item(app, *, source_id: str = "hf-blog") -> str:
@@ -178,3 +185,81 @@ async def test_e_from_sources_view_still_toggles_enabled_not_the_editor(make_app
         await pilot.press("2", "e")
         await pilot.pause()
         assert not calls
+
+
+DRACULA = Config(scout=ScoutConfig(auto_after_hours=0), tui=TuiConfig(theme="dracula"))
+
+
+@pytest.mark.parametrize(
+    ("saved", "expected"),
+    [
+        ("nord", "tui.theme = nord  (last used, ui_state.json; config.toml: dracula)"),
+        (None, "tui.theme = dracula  (config.toml)"),
+        ("no-such-theme", "tui.theme = dracula  (config.toml)"),
+    ],
+)
+async def test_the_config_page_shows_the_running_theme_as_augury_config_does(
+    make_app, paths, saved, expected
+):
+    paths.config_file.write_text('[tui]\ntheme = "dracula"\n')
+    if saved:
+        save(paths, UiState(theme=saved))
+    app = make_app(config=DRACULA)
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("3")
+        shown = theme_line(app.query_one(ConfigView).text_content)
+        assert shown == expected and app.theme in shown.split()
+    assert theme_line(CliRunner().invoke(main, ["config"]).output) == expected
+
+
+async def test_a_theme_picked_with_t_shows_on_the_config_page_and_in_augury_config(make_app, paths):
+    paths.config_file.write_text('[tui]\ntheme = "dracula"\n')
+    app = make_app(config=DRACULA)
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("t", "3")
+        picked = app.theme
+        assert picked != "dracula"
+        expected = f"tui.theme = {picked}  (last used, ui_state.json; config.toml: dracula)"
+        assert theme_line(app.query_one(ConfigView).text_content) == expected
+        assert theme_line(CliRunner().invoke(main, ["config"]).output) == expected
+
+
+async def test_the_config_page_follows_a_theme_picked_while_it_is_showing(make_app):
+    app = make_app()
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("3", "t")
+        expected = f"tui.theme = {app.theme}  (last used, ui_state.json)"
+        assert app.theme != "textual-dark"
+        assert theme_line(app.query_one(ConfigView).text_content) == expected
+
+
+async def test_a_theme_set_any_other_way_updates_the_config_page_and_the_chip(make_app):
+    app = make_app()
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("3")
+        app.theme = "gruvbox"  # as the ctrl+p command palette does
+        await pilot.pause()
+        expected = "tui.theme = gruvbox  (last used, ui_state.json)"
+        assert theme_line(app.query_one(ConfigView).text_content) == expected
+        assert app.query_one("#chip-theme", Chip).value == "gruvbox"
+
+
+async def test_a_theme_config_toml_sets_mid_session_is_shown_as_next_launchs(make_app):
+    def edit(_cmd: list[str]) -> None:
+        app.paths.config_file.write_text('[tui]\ntheme = "dracula"\n')
+
+    app = make_app(editor_runner=edit)
+    app.paths.config_file.write_text("[scout]\nauto_after_hours = 0\n")
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("3", "e")
+        await pilot.pause()
+        assert app.config.tui.theme == "dracula" and app.theme == "textual-dark"
+        expected = (
+            "tui.theme = textual-dark  (running; config.toml: dracula — applies on next launch)"
+        )
+        assert theme_line(app.query_one(ConfigView).text_content) == expected
+    # The next launch is what `augury config` describes.
+    assert (
+        theme_line(CliRunner().invoke(main, ["config"]).output)
+        == "tui.theme = dracula  (config.toml)"
+    )

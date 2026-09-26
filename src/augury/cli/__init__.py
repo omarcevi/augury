@@ -96,10 +96,8 @@ def config(show_path: bool) -> None:
     if show_path:
         click.echo(str(paths.config_file))
         return
-    from augury.tui.widgets.config_view import (  # lazy: keeps plain CLI commands quick
-        build_config_report,
-        render_config_text,
-    )
+    from augury.tui import ui_state  # lazy: keeps plain CLI commands quick
+    from augury.tui.widgets.config_view import build_config_report, render_config_text
 
     try:
         cfg = load_config(paths)
@@ -107,7 +105,9 @@ def config(show_path: bool) -> None:
         raise click.ClickException(str(e)) from e
     conn = open_db(paths)
     try:
-        report = build_config_report(conn, cfg, paths, load_raw_toml(paths))
+        # The theme the app runs with: the one picked with `t` beats config.toml's.
+        saved = ui_state.load(paths).theme
+        report = build_config_report(conn, cfg, paths, load_raw_toml(paths), saved_theme=saved)
     finally:
         conn.close()
     click.echo(safe(render_config_text(report)))

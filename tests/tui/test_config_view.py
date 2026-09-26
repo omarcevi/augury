@@ -1,7 +1,8 @@
+import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from augury.agents.normalize import store_items
-from augury.core.config import Config, ScoutConfig
+from augury.core.config import Config, ScoutConfig, TuiConfig
 from augury.core.db.open import open_db
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.models import RawItem
@@ -73,7 +74,7 @@ def test_build_config_report_paths_versions_and_source_counts(paths):
     SourcesRepo(conn).set_enabled("hf-community", False)
     store_items(conn, [RawItem(source_id="hf-blog", url="https://x/a", title="A")], now=NOW)
     config = Config()
-    report = build_config_report(conn, config, paths, {})
+    report = build_config_report(conn, config, paths, {}, saved_theme=None)
 
     path_labels = dict(report.paths)
     assert path_labels["config.toml"] == str(paths.config_file)
@@ -94,7 +95,7 @@ def test_build_config_report_export_path_shows_off_when_unset(paths):
     # The friendly "off" label is a Paths-section presentation choice (per the plan); the
     # Settings section still shows the raw, generic pydantic value ("").
     conn = open_db(paths, now=NOW)
-    report = build_config_report(conn, Config(), paths, {})
+    report = build_config_report(conn, Config(), paths, {}, saved_theme=None)
     assert dict(report.paths)["export path"] == "off"
     settings_by_field = {(r.section, r.field): r for r in report.settings}
     assert settings_by_field[("export", "path")].value == ""
@@ -102,7 +103,7 @@ def test_build_config_report_export_path_shows_off_when_unset(paths):
 
 def test_render_config_text_has_every_section_header(paths):
     conn = open_db(paths, now=NOW)
-    report = build_config_report(conn, Config(), paths, {})
+    report = build_config_report(conn, Config(), paths, {}, saved_theme=None)
     rendered = render_config_text(report)
     for header in ("Settings", "Paths", "Sources", "Schedule", "Versions"):
         assert f"\n{header}\n" in f"\n{rendered}\n"
@@ -123,3 +124,69 @@ def test_editor_command_prefers_editor_then_visual_then_a_platform_opener(monkey
     monkeypatch.delenv("VISUAL", raising=False)
     cmd = editor_command(target)
     assert cmd[-1] == str(target) and cmd[0] in ("open", "xdg-open")
+
+
+def theme_line(rendered: str) -> str:
+    return next(line.strip() for line in rendered.splitlines() if "tui.theme =" in line)
+
+
+@pytest.mark.parametrize(
+    ("saved", "configured", "expected"),
+    [
+        # A theme picked with `t` overrides config.toml's, and the page says both.
+        ("nord", "dracula", "tui.theme = nord  (last used, ui_state.json; config.toml: dracula)"),
+        ("nord", None, "tui.theme = nord  (last used, ui_state.json)"),
+        (None, "dracula", "tui.theme = dracula  (config.toml)"),
+        (None, None, "tui.theme = textual-dark  (default)"),
+        # A saved theme that's no longer available falls back, as at launch.
+        ("no-such-theme", "dracula", "tui.theme = dracula  (config.toml)"),
+        ("no-such-theme", None, "tui.theme = textual-dark  (default)"),
+        (None, "nor-this", "tui.theme = textual-dark  (default; config.toml: nor-this)"),
+    ],
+)
+def test_the_theme_row_shows_the_running_theme_and_where_it_came_from(
+    paths, saved, configured, expected
+):
+    conn = open_db(paths, now=NOW)
+    raw = {"tui": {"theme": configured}} if configured else {}
+    config = Config(tui=TuiConfig(theme=configured)) if configured else Config()
+    report = build_config_report(conn, config, paths, raw, saved_theme=saved)
+    assert theme_line(render_config_text(report)) == expected
+
+
+@pytest.mark.parametrize(
+    ("running", "configured", "saved", "expected"),
+    [
+        # `e` changed config.toml since launch; the app keeps the theme it started with.
+        (
+            "textual-dark",
+            "dracula",
+            None,
+            "tui.theme = textual-dark  (running; config.toml: dracula — applies on next launch)",
+        ),
+        (
+            "nord",
+            "nor-this",
+            None,
+            "tui.theme = nord  (running; config.toml: nor-this isn't available"
+            " — textual-dark on next launch)",
+        ),
+        ("dracula", None, None, "tui.theme = dracula  (running; textual-dark on next launch)"),
+        # Running what it resolves to: nothing to add.
+        (
+            "nord",
+            "dracula",
+            "nord",
+            "tui.theme = nord  (last used, ui_state.json; config.toml: dracula)",
+        ),
+        ("dracula", "dracula", None, "tui.theme = dracula  (config.toml)"),
+    ],
+)
+def test_the_theme_row_says_when_the_running_theme_is_not_next_launchs(
+    paths, running, configured, saved, expected
+):
+    conn = open_db(paths, now=NOW)
+    raw = {"tui": {"theme": configured}} if configured else {}
+    config = Config(tui=TuiConfig(theme=configured)) if configured else Config()
+    report = build_config_report(conn, config, paths, raw, saved_theme=saved, running_theme=running)
+    assert theme_line(render_config_text(report)) == expected

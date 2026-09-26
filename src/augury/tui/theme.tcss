@@ -10,8 +10,17 @@ Screen { layout: vertical; }
 HelpOverlay { align: center middle; }
 #help-body { width: 64; height: auto; max-height: 90%; border: round $accent; border-title-color: $accent; border-subtitle-color: $text-muted; background: $surface; padding: 0 2; }
 #filters { height: 3; }
-#search { width: 1fr; min-width: 24; }
+#search { width: 1fr; min-width: 7; }
 .chip { width: auto; min-width: 14; max-width: 24; height: 3; border: round $primary; border-title-color: $text-muted; padding: 0 1; text-wrap: nowrap; text-overflow: ellipsis; }
+/* The filter row fits the screen from 80 columns. Below 160 there's no room for the Theme chip
+   (`t` still cycles it and names the theme in a toast; help lists the key). Below 100 the Sources
+   chip stays at its title's width (a long source name ends in …), so at 80 the chips take 73 and
+   the search box 7: while it has focus it takes the whole row instead (the chips move off it),
+   and the Items title shows the query (AuguryApp.show_items_title). */
+Screen.layout-medium #chip-theme, Screen.layout-narrow #chip-theme { display: none; }
+Screen.layout-narrow #chip-sources { max-width: 17; }
+Screen.layout-narrow #search { padding: 0 1; }
+Screen.layout-narrow #search:focus { width: 100%; }
 PickerModal, ChoiceModal { align: center middle; }
 #picker, #choice { width: 60; height: auto; max-height: 70%; border: round $accent; }
 #main { layout: horizontal; }

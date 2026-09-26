@@ -1,5 +1,9 @@
+import pytest
+
 from augury.agents.normalize import store_items
 from augury.core.models import RawItem
+from augury.tui.layout import layout_for
+from augury.tui.query import ItemFilter
 from augury.tui.widgets.filter_chips import Chip
 from augury.tui.widgets.items_table import ItemsTable
 from augury.tui.widgets.picker_modal import ChoiceModal, PickerModal
@@ -95,7 +99,7 @@ async def test_every_chip_shows_its_full_title_at_80_and_120_columns(make_app):
         app = make_app()
         async with app.run_test(size=(width, 40)) as pilot:
             await pilot.pause()
-            chips = list(app.query(Chip))
+            chips = [chip for chip in app.query(Chip) if chip.display]  # no Theme below 160
             assert chips, "no chips mounted"
             svg = app.export_screenshot()
             for chip in chips:
@@ -157,7 +161,111 @@ async def test_every_visible_chip_value_is_intact_or_ellipsized_at_90_columns(ma
     async with app.run_test(size=(90, 40)) as pilot:
         await pilot.pause()
         for chip in app.query(Chip):
-            if chip.region.right > 90:
+            if not chip.display or chip.region.right > 90:  # no Theme chip below 160 columns
                 continue  # off-screen (partially or fully): a viewport crop, not text CSS
             shown = _chip_value_line(chip).rstrip()
             assert shown == chip.value or shown.endswith("…"), (chip.id, shown, chip.value)
+
+
+# The widest value each chip can show (a long source name, "2 selected", "Shortest ↑", ...).
+LONGEST = ItemFilter(
+    sources=frozenset({"a-very-long-source-name-from-a-feed"}),
+    kinds=frozenset({"paper", "article"}),
+    date="30d",
+    sort="reading_time",
+    show="hidden",
+)
+
+
+@pytest.mark.parametrize("longest", [False, True], ids=["defaults", "longest"])
+@pytest.mark.parametrize("width", [80, 90, 99, 100, 120, 159, 160])
+async def test_the_filter_row_fits_the_screen(make_app, width, longest):
+    # At 90 columns the Show chip straddled the screen edge ("Unrea") and Theme was off it.
+    app = make_app()
+    async with app.run_test(size=(width, 30)) as pilot:
+        if longest:
+            app.theme = "catppuccin-mocha"  # the longest theme name `t` cycles through
+            app.apply_filter(LONGEST)
+        await pilot.pause()
+        screen = app.screen._compositor.render_strips()  # what the terminal shows
+        chips = [chip for chip in app.query(Chip) if chip.display]
+        search = app.query_one("#search")
+        assert search.region.right <= chips[0].region.x and search.region.width >= 7
+        for chip in chips:
+            region = chip.region
+            assert region.x >= 0 and region.right <= width, (chip.id, region)
+            top = screen[region.y].text[region.x : region.right]
+            assert f" {chip.border_title} " in top, (chip.id, top)
+            shown = screen[region.y + 1].text[region.x : region.right].strip().strip("│").strip()
+            if shown != chip.value:  # cut, then only ever with an ellipsis
+                assert shown.endswith("…") and chip.value.startswith(shown[:-1]), (chip.id, shown)
+        # `t` still cycles the theme (and says so in the hints); only a wide screen has room.
+        assert (len(chips) == 6) is (layout_for(width) == "wide")
+
+
+def rows_of(app, widget) -> list[str]:
+    """The widget's rows as the terminal shows them (borders and titles included)."""
+    screen = app.screen._compositor.render_strips()
+    region = widget.region
+    return [screen[y].text[region.x : region.right] for y in range(region.y, region.bottom)]
+
+
+@pytest.mark.parametrize("leave", ["enter", "escape"])
+async def test_the_search_box_takes_the_whole_row_while_typing_at_80_columns(make_app, leave):
+    # At 80 columns it's 7 cells wide: the title showed as "…" and a query as "dif".
+    app = make_app()
+    seed(app)
+    query = "diffusiontransformer"  # 20 characters
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("slash", *query)
+        await pilot.pause()
+        search = app.query_one("#search")
+        assert search.region.width == 80
+        top, middle, _bottom = rows_of(app, search)
+        assert "Search (/)" in top and query in middle
+        whole_row = "".join(rows_of(app, app.query_one("#filters")))
+        assert "Sources (S)" not in whole_row and "╭" not in whole_row  # no chip, not even part
+        await pilot.press(leave)
+        await pilot.pause()
+        assert search.region.width == 7 and app.item_filter.search == query
+        chips = [chip for chip in app.query(Chip) if chip.display]
+        assert len(chips) == 5 and all(
+            0 < chip.region.x < chip.region.right <= 80 for chip in chips
+        )
+
+
+HOSTILE = "[b]x[/b]"
+
+
+async def test_a_narrow_items_pane_shows_the_search_in_its_title(make_app):
+    # The search box can only show a few characters of it at 80 columns.
+    app = make_app()
+    seed(app)
+    store_items(app.conn, [RawItem(source_id="hf-blog", url="https://x/h", title=HOSTILE)], now=NOW)
+    keys = ["left_square_bracket", "b", "right_square_bracket", "x"]
+    keys += ["left_square_bracket", "slash", "b", "right_square_bracket"]
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("slash", *keys, "enter")
+        await pilot.pause()
+        pane = app.query_one("#items-pane")
+        assert app.item_filter.search == HOSTILE  # literally, and never parsed as markup
+        assert rows_of(app, pane)[0].startswith('╭─ Items (1/4) · "[b]x[/b]" ─')
+        await pilot.resize_terminal(120, 24)  # the search box shows it itself
+        await pilot.pause()
+        assert rows_of(app, pane)[0].startswith("╭─ Items (1/4) ─")
+        await pilot.resize_terminal(80, 24)
+        await pilot.pause()
+        assert '· "[b]x[/b]"' in rows_of(app, pane)[0]
+        await pilot.press("slash", *["backspace"] * len(HOSTILE), "enter")
+        await pilot.pause()
+        assert rows_of(app, pane)[0].startswith("╭─ Items (4/4) ─")
+
+
+@pytest.mark.parametrize(("width", "toast"), [(100, True), (159, True), (160, False)])
+async def test_t_names_the_theme_when_its_chip_is_hidden(make_app, width, toast):
+    app = make_app()
+    async with app.run_test(size=(width, 30)) as pilot:
+        await pilot.press("t")
+        await pilot.pause()
+        notes = [(n.message, n.markup) for n in app._notifications if n.message.startswith("Theme")]
+        assert notes == ([(f"Theme: {app.theme}", False)] if toast else [])
