@@ -1,0 +1,21 @@
+# USD per million tokens for the default models, paid tier, from
+# https://ai.google.dev/gemini-api/docs/pricing (checked 2026-09-25). Output prices include
+# thinking tokens. Add or override models with [pricing."<provider/model>"] in config.toml.
+
+["gemini/gemini-3.5-flash-lite"]
+input_per_mtok = 0.30
+output_per_mtok = 2.50
+
+["gemini/gemini-3.1-pro-preview"]
+# prompts up to 200k tokens (longer prompts cost 4.00 / 18.00)
+input_per_mtok = 2.00
+output_per_mtok = 12.00
+
+["gemini/gemini-3.8-flash"]
+# 0.75 / 3.75 until 2026-12-31; the regular price keeps the budget cap on the safe side
+input_per_mtok = 1.50
+output_per_mtok = 7.50
+
+["gemini/gemini-3.5-flash"]
+input_per_mtok = 1.50
+output_per_mtok = 9.00

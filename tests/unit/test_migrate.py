@@ -4,17 +4,19 @@ import pytest
 
 from augury.core.clock import utcnow
 from augury.core.db.connect import connect, vec_version
-from augury.core.db.migrate import SchemaTooNew, migrate, schema_version
+from augury.core.db.migrate import SchemaTooNew, available_migrations, migrate, schema_version
 from augury.core.db.open import open_db
+
+LATEST = len(available_migrations())
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
     return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
 
-def test_fresh_database_reaches_schema_v1(tmp_path):
+def test_fresh_database_reaches_the_latest_schema(tmp_path):
     conn = connect(tmp_path / "t.db")
-    assert migrate(conn) == 1
+    assert migrate(conn) == LATEST
     assert {
         "sources",
         "items",
@@ -31,7 +33,29 @@ def test_fresh_database_reaches_schema_v1(tmp_path):
 def test_migrate_is_idempotent(tmp_path):
     conn = connect(tmp_path / "t.db")
     migrate(conn)
-    assert migrate(conn) == 1
+    assert migrate(conn) == LATEST
+
+
+def test_every_past_schema_version_migrates_to_the_latest(tmp_path):
+    migrations = available_migrations()
+    for start in range(1, len(migrations)):
+        conn = connect(tmp_path / f"v{start}.db")
+        migrate(conn, migrations[:start])
+        assert schema_version(conn) == start
+        assert migrate(conn) == len(migrations)
+        conn.close()
+
+
+def test_v1_runs_keep_their_numbers_and_gain_unpriced_tokens(tmp_path):
+    conn = connect(tmp_path / "t.db")
+    migrate(conn, available_migrations()[:1])
+    conn.execute(
+        "INSERT INTO runs (id, kind, started_at, status, tokens_in, cost_usd)"
+        " VALUES ('r1', 'scout', '2026-09-25T00:00:00+00:00', 'ok', 7, 0.5)"
+    )
+    migrate(conn)
+    row = conn.execute("SELECT tokens_in, cost_usd, unpriced_tokens FROM runs WHERE id = 'r1'")
+    assert tuple(row.fetchone()) == (7, 0.5, 0)
 
 
 def test_newer_schema_is_refused(tmp_path):

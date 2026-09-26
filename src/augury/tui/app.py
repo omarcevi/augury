@@ -290,7 +290,12 @@ class AuguryApp(App[None]):
 
     def refresh_health(self) -> None:
         snapshot = load_health(
-            self.conn, self.now(), scouting=self.scouting, new_since=self.last_visit, ai=self.ai
+            self.conn,
+            self.now(),
+            scouting=self.scouting,
+            new_since=self.last_visit,
+            ai=self.ai,
+            budget=self.config.budget,
         )
         self.query_one(HealthBar).snapshot = snapshot
 

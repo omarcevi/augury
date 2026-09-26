@@ -85,6 +85,16 @@ class ExportConfig(_Section):
     path: str = ""
 
 
+class BudgetConfig(_Section):
+    daily_usd: float = Field(default=1.00, ge=0)  # 0 turns every LLM feature off
+    daily_tokens: int = Field(default=2_000_000, ge=0)  # for models without a known price
+
+
+class PriceConfig(_Section):
+    input_per_mtok: float = Field(ge=0)
+    output_per_mtok: float = Field(ge=0)
+
+
 class TuiConfig(_Section):
     theme: str = "textual-dark"
     # Restore the last filters, search, view and selected row on launch (data/ui_state.json).
@@ -104,6 +114,8 @@ class Config(_Section):
     tui: TuiConfig = Field(default_factory=TuiConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     google: GoogleConfig = Field(default_factory=GoogleConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    pricing: dict[str, PriceConfig] = Field(default_factory=dict)  # [pricing."<provider/model>"]
 
 
 class Interests(_Section):

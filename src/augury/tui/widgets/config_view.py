@@ -53,6 +53,14 @@ class SettingRow:
     note: str = ""  # e.g. what config.toml says when something else wins
 
 
+def _render_section_value(value: object) -> object:
+    """A `PriceConfig`-shaped value (or any nested `BaseModel`) as one line, e.g.
+    "input_per_mtok=1.5 output_per_mtok=6.0"."""
+    if isinstance(value, BaseModel):
+        return " ".join(f"{name}={getattr(value, name)}" for name in type(value).model_fields)
+    return value
+
+
 def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[SettingRow]:
     """Every field of every section of `config`, generic over the pydantic model's own
     shape -- so a field added to any `_Section` (e.g. Lane 1/2's remember_state,
@@ -60,6 +68,11 @@ def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[S
     Typed as `BaseModel`, not `Config`, on purpose: the whole point is that this walks
     whatever nested sections and fields the model actually declares, so it works
     unchanged on the real `Config` and on a stand-in shape a test builds to prove that.
+
+    A section need not be a `_Section` itself: `Config.pricing` is a plain
+    `dict[str, PriceConfig]` (there's no fixed set of fields to walk), so it gets one row
+    per configured entry (keyed `"<spec>"`), or a single `*` / "none" placeholder row when
+    it's empty.
 
     The source label is read straight from the raw TOML dict (`load_config`'s own
     parsing), not guessed: a field counts as "config.toml" only if its key is actually
@@ -71,6 +84,21 @@ def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[S
         raw_section = raw_toml.get(section_name)
         if not isinstance(raw_section, Mapping):
             raw_section = {}
+        if not isinstance(section, BaseModel):
+            if isinstance(section, Mapping):
+                if not section:
+                    rows.append(SettingRow(section_name, "*", "none", "default"))
+                else:
+                    for key, entry in section.items():
+                        rows.append(
+                            SettingRow(
+                                section_name,
+                                f'"{key}"',
+                                _render_section_value(entry),
+                                "config.toml",
+                            )
+                        )
+            continue
         for field_name in type(section).model_fields:
             value = getattr(section, field_name)
             if _SECRET_FIELD.search(field_name) and value:

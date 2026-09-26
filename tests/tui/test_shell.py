@@ -150,3 +150,28 @@ async def test_t_cycles_the_theme(make_app):
 
 def test_shell_snapshot(make_app, snap_compare):
     assert snap_compare(make_app(), terminal_size=(120, 30))
+
+
+async def test_health_bar_shows_todays_spend(make_app):
+    app = make_app(resolver=fake_resolver(ScriptedLlm()))
+    runs = RunsRepo(app.conn)
+    run_id = runs.start("summarize", now=NOW)
+    runs.add_usage(run_id, tokens_in=10, tokens_out=10, cost_usd=0.034, unpriced_tokens=0)
+    async with app.run_test(size=(160, 30)):
+        assert "Today: $0.03" in app.query_one(HealthBar).render().plain
+
+
+async def test_health_bar_says_when_the_budget_is_reached(make_app):
+    app = make_app(resolver=fake_resolver(ScriptedLlm()))
+    runs = RunsRepo(app.conn)
+    run_id = runs.start("summarize", now=NOW)
+    runs.add_usage(run_id, tokens_in=1, tokens_out=1, cost_usd=1.5, unpriced_tokens=2500)
+    async with app.run_test(size=(160, 30)):
+        line = app.query_one(HealthBar).render().plain
+        assert "Today: $1.50 + 2.5k tok unpriced" in line and "budget reached" in line
+
+
+async def test_no_spend_segment_without_ai(make_app):
+    app = make_app()
+    async with app.run_test(size=(160, 30)):
+        assert "Today:" not in app.query_one(HealthBar).render().plain

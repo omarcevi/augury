@@ -22,6 +22,14 @@ class RunRecord:
     stats: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class Spend:
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
+    unpriced_tokens: int = 0
+
+
 class RunsRepo:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
@@ -77,3 +85,27 @@ class RunsRepo:
             row["error"],
             json.loads(row["stats_json"]),
         )
+
+    def add_usage(
+        self,
+        run_id: str,
+        *,
+        tokens_in: int,
+        tokens_out: int,
+        cost_usd: float,
+        unpriced_tokens: int,
+    ) -> None:
+        self.conn.execute(
+            "UPDATE runs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,"
+            " cost_usd = cost_usd + ?, unpriced_tokens = unpriced_tokens + ? WHERE id = ?",
+            (tokens_in, tokens_out, cost_usd, unpriced_tokens, run_id),
+        )
+
+    def spend_between(self, start: datetime, end: datetime) -> Spend:
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0),"
+            " COALESCE(SUM(cost_usd), 0), COALESCE(SUM(unpriced_tokens), 0)"
+            " FROM runs WHERE started_at >= ? AND started_at < ?",
+            (to_iso(start), to_iso(end)),
+        ).fetchone()
+        return Spend(int(row[0]), int(row[1]), float(row[2]), int(row[3]))

@@ -2,6 +2,7 @@ import httpx
 from click.testing import CliRunner
 
 from augury.cli import main
+from augury.core.db.migrate import available_migrations
 
 
 def test_doctor_passes_with_defaults(paths):
@@ -21,7 +22,7 @@ def test_doctor_fails_on_broken_config(paths):
 def test_doctor_reports_database(paths):
     result = CliRunner().invoke(main, ["doctor", "--offline"])
     assert "✓ database" in result.output
-    assert "(schema v1)" in result.output
+    assert f"(schema v{len(available_migrations())})" in result.output
 
 
 def test_doctor_network_check(paths, respx_mock):

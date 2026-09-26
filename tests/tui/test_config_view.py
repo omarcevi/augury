@@ -2,7 +2,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from augury.agents.normalize import store_items
-from augury.core.config import Config, ScoutConfig, TuiConfig
+from augury.core.config import Config, PriceConfig, ScoutConfig, TuiConfig
 from augury.core.db.open import open_db
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.models import RawItem
@@ -85,6 +85,21 @@ def test_effective_settings_picks_up_a_field_no_code_here_has_ever_heard_of():
     assert by_field[("tui", "reading_width")].value == 100
     assert by_field[("tui", "reading_width")].source == "config.toml"
     assert by_field[("tui", "theme")].source == "default"
+
+
+def test_effective_settings_lists_a_configured_pricing_entry():
+    # Config.pricing is a plain dict[str, PriceConfig], not a _Section -- the generic walk
+    # must special-case it instead of crashing on `type(section).model_fields`.
+    config = Config(pricing={"openai/x": PriceConfig(input_per_mtok=1, output_per_mtok=2)})
+    raw = {"pricing": {"openai/x": {}}}
+    rows = {(r.section, r.field): r for r in effective_settings(config, raw)}
+    assert ("pricing", '"openai/x"') in rows
+
+
+def test_render_config_text_shows_no_pricing_by_default(paths):
+    conn = open_db(paths, now=NOW)
+    report = build_config_report(conn, Config(), paths, {}, saved_theme=None)
+    assert "pricing.* = none" in render_config_text(report)
 
 
 def test_build_config_report_paths_versions_and_source_counts(paths):
