@@ -51,7 +51,8 @@ async def test_row_without_published_date_uses_first_seen(make_app):
     async with app.run_test(size=(120, 30)):
         app.item_filter = ItemFilter(date="7d")
         app.reload_items()
-        assert app.query_one(ItemsTable).get_row_at(0)[4].plain == "3h"
+        table = app.query_one(ItemsTable)
+        assert table.get_cell(next(iter(table.rows_by_key)), "age").plain == "3h"
 
 
 async def test_empty_state_is_explained(make_app):

@@ -114,7 +114,7 @@ async def test_filters_search_view_and_row_come_back_after_quitting(make_app, pa
     async with app.run_test(size=(140, 40)) as pilot:
         await pilot.press("S", "space", "enter")  # hf-blog
         await pilot.press("D", "down", "enter")  # 7 days
-        await pilot.press("s", "v", "v")  # Popular, All
+        await pilot.press("s", "s", "v", "v")  # Score → Newest → Popular, All
         await pilot.press("slash", "p", "o", "s", "t", "enter")
         await pilot.press("down")
         await pilot.pause()

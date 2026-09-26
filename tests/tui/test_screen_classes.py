@@ -190,7 +190,7 @@ async def test_the_helper_restyles_every_match_of_a_compound_target(make_app, mo
         monkeypatch.setattr(app.stylesheet, "update_nodes", spy)
         app._set_screen_classes({"zen": True})
         assert [node.id for node in restyled if isinstance(node, ReaderPane)] == ["reader"]
-        assert len([node for node in restyled if isinstance(node, Chip)]) == 6
+        assert len([node for node in restyled if isinstance(node, Chip)]) == 7
 
 
 async def test_the_helper_only_sets_screen_classes(make_app):

@@ -2,11 +2,12 @@ from typing import Literal
 
 Layout = Literal["wide", "medium", "narrow"]
 
-# Spec §8.3: side by side from 100 columns; below that the reader opens full screen.
+# Spec §8.3: side by side from 100 columns, dropping Tags, then Min, then ▲ as it narrows;
+# below 100 columns the reader opens full screen.
 HIDDEN_COLUMNS: dict[Layout, frozenset[str]] = {
     "wide": frozenset(),
-    "medium": frozenset({"min"}),
-    "narrow": frozenset({"min", "pop"}),
+    "medium": frozenset({"tags", "min"}),
+    "narrow": frozenset({"tags", "min", "pop"}),
 }
 
 

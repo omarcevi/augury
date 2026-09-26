@@ -6,6 +6,8 @@ Screen { layout: vertical; }
 #items-pane { border: round $primary; border-title-color: $accent; height: 1fr; }
 #items { height: 1fr; }
 #empty { padding: 1 2; color: $text-muted; }
+#banner { display: none; height: 1; padding: 0 1; color: $warning; text-wrap: nowrap; text-overflow: ellipsis; }
+#triage-hidden { display: none; height: 1; padding: 0 1; color: $text-muted; text-wrap: nowrap; text-overflow: ellipsis; }
 #status { height: 2; padding: 0 1; text-wrap: nowrap; text-overflow: ellipsis; }
 HelpOverlay { align: center middle; }
 #help-body { width: 64; height: auto; max-height: 90%; border: round $accent; border-title-color: $accent; border-subtitle-color: $text-muted; background: $surface; padding: 0 2; }
@@ -21,6 +23,11 @@ Screen.layout-medium #chip-theme, Screen.layout-narrow #chip-theme { display: no
 Screen.layout-narrow #chip-sources { max-width: 17; }
 Screen.layout-narrow #search { padding: 0 1; }
 Screen.layout-narrow #search:focus { width: 100%; }
+/* F27: the Tags chip needs room too. Below 100 columns it hides (# still opens the picker), and
+   from 100 to 159 Sources and Tags stop at 17 (their longest values end in …): at 100 the row is
+   then 7 + 17 + 4×14 + 17 = 97. */
+Screen.layout-narrow #chip-tags { display: none; }
+Screen.layout-medium #chip-sources, Screen.layout-medium #chip-tags { max-width: 17; }
 PickerModal, ChoiceModal { align: center middle; }
 #picker, #choice { width: 60; height: auto; max-height: 70%; border: round $accent; }
 #main { layout: horizontal; }

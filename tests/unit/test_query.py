@@ -1,9 +1,21 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from augury.agents.normalize import store_items
 from augury.core.db.open import open_db
-from augury.core.models import RawItem, Signals
-from augury.tui.query import ItemFilter, count_new, fts_query, is_new, list_items
+from augury.core.db.state_repo import StateRepo
+from augury.core.db.triage_repo import TriageRepo
+from augury.core.models import RawItem, Signals, TriageResult
+from augury.tui.query import (
+    ItemFilter,
+    count_new,
+    fts_query,
+    get_item_row,
+    is_new,
+    list_items,
+    tag_options,
+    triage_hidden,
+)
 
 NOW = datetime(2026, 9, 25, 9, 0, tzinfo=UTC)
 
@@ -167,3 +179,132 @@ def test_show_new_ignores_the_date_chip_as_the_last_visit_is_its_own_floor(paths
     rows = list_items(conn, ItemFilter(show="new"), now=NOW, new_since=since)[0]  # Date: Today
     assert sorted(ids(rows)) == ["New 0", "Old 0", "Old 1"]
     assert len(rows) == count_new(conn, since)
+
+
+# --- M2 · the ranked digest and triage (F27) --------------------------------------------------
+
+
+def _ids(conn) -> dict[str, str]:
+    rows, _ = list_items(conn, ItemFilter(date="all", show="all"), now=NOW)
+    return {r.title: r.id for r in rows}
+
+
+def _triage(conn, results: list[TriageResult]) -> None:
+    TriageRepo(conn).save_all(results, run_id="r", model="m", prompt_version=1)
+
+
+def test_score_sort_puts_unranked_items_last(paths):
+    conn = seed(paths)
+    ids = _ids(conn)
+    conn.execute(
+        "INSERT INTO digests (day, item_id, position, final_score, breakdown_json)"
+        " VALUES ('2026-09-25', ?, 1, 0.9, '{}')",
+        (ids["Fast decoding"],),
+    )
+    rows, _ = list_items(conn, ItemFilter(sort="score"), now=NOW)
+    assert rows[0].title == "Fast decoding" and rows[0].score == 0.9
+    assert all(r.score is None for r in rows[1:])
+
+
+def test_the_default_sort_is_score_and_unranked_rows_fall_back_to_newest(paths):
+    conn = seed(paths)
+    assert ItemFilter().sort == "score"
+    by_score = ids(list_items(conn, ItemFilter(), now=NOW)[0])
+    assert by_score == ids(list_items(conn, ItemFilter(sort="newest"), now=NOW)[0])
+
+
+def test_the_latest_digest_row_is_the_one_joined(paths):
+    conn = seed(paths)
+    item = _ids(conn)["Fast decoding"]
+    conn.executemany(
+        "INSERT INTO digests (day, item_id, position, final_score, breakdown_json)"
+        " VALUES (?, ?, 1, ?, '{}')",
+        [("2026-09-24", item, 0.2), ("2026-09-25", item, 0.7)],
+    )
+    rows, _ = list_items(conn, ItemFilter(date="all", show="all"), now=NOW)
+    assert [r.score for r in rows if r.id == item] == [0.7]  # one row per item, the latest day
+    assert get_item_row(conn, item, now=NOW).score == 0.7  # type: ignore[union-attr]
+
+
+def test_promo_and_thin_leave_the_top_views_and_are_counted(paths):
+    conn = seed(paths)
+    ids = _ids(conn)
+    _triage(
+        conn,
+        [
+            TriageResult(item_id=ids["Fast decoding"], relevance=3, flags=["promo"]),
+            TriageResult(item_id=ids["No signal post"], relevance=1, flags=["off_topic", "thin"]),
+        ],
+    )
+    rows, _ = list_items(conn, ItemFilter(), now=NOW)
+    assert [r.title for r in rows] == ["Qwen3-30B-A3B beats GRPO"]
+    hidden = triage_hidden(conn, ItemFilter(), now=NOW)
+    assert hidden.total == 2 and dict(hidden.by_flag) == {"promo": 1, "thin": 1}
+    assert len(list_items(conn, ItemFilter(show_triage_hidden=True), now=NOW)[0]) == 3
+    assert triage_hidden(conn, ItemFilter(show="saved"), now=NOW).total == 0
+
+
+def test_the_list_the_hidden_count_and_the_tags_agree_about_a_view(paths):
+    # One set of conditions (_conditions) decides what a view contains, for all three.
+    conn = seed(paths)
+    ids = _ids(conn)
+    _triage(
+        conn,
+        [
+            TriageResult(item_id=ids["Fast decoding"], relevance=3, flags=["promo"], tags=["x"]),
+            TriageResult(item_id=ids["Yesterday post"], relevance=3, flags=["thin"], tags=["x"]),
+            TriageResult(item_id=ids["No signal post"], relevance=5, tags=["x", "y"]),
+        ],
+    )
+    tagged_x = {ids["Fast decoding"], ids["Yesterday post"], ids["No signal post"]}
+    for f in (
+        ItemFilter(),
+        ItemFilter(date="all"),
+        ItemFilter(sources=frozenset({"hf-blog"})),
+        ItemFilter(search="post", date="all"),
+        ItemFilter(show="new", date="all"),
+    ):
+        expanded = replace(f, show_triage_hidden=True)
+        shown = {r.id for r in list_items(conn, f, now=NOW)[0]}
+        everything = {r.id for r in list_items(conn, expanded, now=NOW)[0]}
+        assert triage_hidden(conn, f, now=NOW).total == len(everything - shown), f
+        assert dict(tag_options(conn, f, now=NOW)).get("x", 0) == len(shown & tagged_x), f
+        assert dict(tag_options(conn, expanded, now=NOW)).get("x", 0) == len(
+            everything & tagged_x
+        ), f
+
+
+def test_tag_filter_and_tag_options(paths):
+    conn = seed(paths)
+    ids = _ids(conn)
+    _triage(
+        conn,
+        [
+            TriageResult(item_id=ids["Fast decoding"], relevance=5, tags=["agents", "rag"]),
+            TriageResult(item_id=ids["No signal post"], relevance=5, tags=["agents"]),
+        ],
+    )
+    assert tag_options(conn, ItemFilter(), now=NOW) == [("agents", 2), ("rag", 1)]
+    rag, _ = list_items(conn, ItemFilter(tags=frozenset({"rag"})), now=NOW)
+    assert [r.title for r in rag] == ["Fast decoding"] and rag[0].tags == ("agents", "rag")
+    # The picker's counts ignore its own filter, so the other tags stay pickable.
+    assert tag_options(conn, ItemFilter(tags=frozenset({"rag"})), now=NOW) == [
+        ("agents", 2),
+        ("rag", 1),
+    ]
+
+
+def test_a_source_counts_as_liked_only_after_a_like_from_it(paths):
+    conn = seed(paths)
+    ids = _ids(conn)
+    assert not any(r.source_liked for r in list_items(conn, ItemFilter(), now=NOW)[0])
+    StateRepo(conn).toggle(ids["Yesterday post"], "liked", now=NOW)  # hf-blog
+    rows, _ = list_items(conn, ItemFilter(), now=NOW)
+    assert {r.source_id: r.source_liked for r in rows} == {
+        "hf-papers": False,
+        "hf-blog": True,
+        "hf-community": False,
+    }
+    assert get_item_row(conn, ids["Fast decoding"], now=NOW).source_liked  # type: ignore[union-attr]
+    StateRepo(conn).toggle(ids["Yesterday post"], "hidden", now=NOW)  # a hidden like is no like
+    assert not any(r.source_liked for r in list_items(conn, ItemFilter(), now=NOW)[0])

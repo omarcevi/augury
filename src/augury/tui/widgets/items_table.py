@@ -7,6 +7,8 @@ from textual import events
 from textual.binding import Binding, BindingType
 from textual.widgets import DataTable
 
+from augury.core.models import HIDING_FLAGS
+from augury.tui.digest_view import score_text
 from augury.tui.query import ItemRow, is_new
 from augury.tui.safe_text import text
 
@@ -15,6 +17,8 @@ COLUMNS: tuple[tuple[str, str, int | None], ...] = (
     ("st", "St", 2),
     ("title", "Title", None),
     ("source", "Source", 14),
+    ("tags", "Tags", 16),
+    ("score", "Score", 5),
     ("pop", "▲", 5),
     ("age", "Age", 4),
     ("min", "Min", 4),
@@ -72,10 +76,14 @@ class ItemsTable(DataTable[Text]):
             title.append(" ★", style=palette.get("success", ""))
         if r.saved:
             title.append(" ⊕", style=palette.get("accent", ""))
+        if r.flags & HIDING_FLAGS:  # after H, or in Saved/Liked/Hidden (spec §8.3.5: ⚑ promo)
+            title.append(" ⚑", style=palette.get("warning", ""))
         cells = {
             "st": Text(dot, style=color),
             "title": title,
             "source": text(r.source_id, "dim", one_line=True),
+            "tags": text(", ".join(r.tags), "dim", one_line=True),  # from the model: untrusted
+            "score": score_text(r.score, palette),
             "pop": Text("—" if r.popularity is None else str(r.popularity), justify="right"),
             "age": Text(
                 "↺" if r.is_old else humanize_age(now - (r.published_at or r.first_seen)),

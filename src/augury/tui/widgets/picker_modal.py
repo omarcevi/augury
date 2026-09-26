@@ -1,5 +1,7 @@
+from collections.abc import Sequence
 from typing import ClassVar
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.screen import ModalScreen
@@ -16,8 +18,9 @@ class PickerModal(ModalScreen[frozenset[str] | None]):
     ]
 
     def __init__(
-        self, title: str, options: list[tuple[str, str]], selected: frozenset[str]
+        self, title: str, options: Sequence[tuple[str | Text, str]], selected: frozenset[str]
     ) -> None:
+        """A label that isn't ours (a tag from the model, say) must be a Text: a str is markup."""
         super().__init__()
         self._title, self._options, self._selected = title, options, selected
 

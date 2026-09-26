@@ -6,7 +6,12 @@ from augury.tui.query import ItemFilter
 from augury.tui.safe_text import text
 
 DATE_LABELS = {"today": "Today", "7d": "7 days", "30d": "30 days", "all": "All time"}
-SORT_LABELS = {"newest": "Newest ↓", "popular": "Popular ↓", "reading_time": "Shortest ↑"}
+SORT_LABELS = {
+    "score": "Score ↓",
+    "newest": "Newest ↓",
+    "popular": "Popular ↓",
+    "reading_time": "Shortest ↑",
+}
 SHOW_LABELS = {
     "unread": "Unread",
     "new": "New",
@@ -51,6 +56,7 @@ class FilterChips(Horizontal):
         yield search
         yield Chip("Sources", "S", id="chip-sources")
         yield Chip("Kind", "K", id="chip-kind")
+        yield Chip("Tags", "#", id="chip-tags")
         yield Chip("Date", "D", id="chip-date")
         yield Chip("Sort", "s", id="chip-sort")
         yield Chip("Show", "v", id="chip-show")
@@ -59,6 +65,7 @@ class FilterChips(Horizontal):
     def show_filter(self, f: ItemFilter, theme: str) -> None:
         self.query_one("#chip-sources", Chip).set_value(selection_label(f.sources))
         self.query_one("#chip-kind", Chip).set_value(selection_label(f.kinds))
+        self.query_one("#chip-tags", Chip).set_value(selection_label(f.tags))
         date = NEW_DATE_LABEL if f.show == "new" else DATE_LABELS[f.date]
         self.query_one("#chip-date", Chip).set_value(date)
         self.query_one("#chip-sort", Chip).set_value(SORT_LABELS[f.sort])

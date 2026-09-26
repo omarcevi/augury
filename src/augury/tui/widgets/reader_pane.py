@@ -16,6 +16,7 @@ from textual.widgets.markdown import MarkdownFence
 from augury.core.models import Item
 from augury.core.text import strip_control_chars
 from augury.tui.clipboard import copy_and_tell
+from augury.tui.digest_view import breakdown_line
 from augury.tui.query import ItemRow
 from augury.tui.safe_text import text
 from augury.tui.widgets.contents_list import ContentsList
@@ -157,6 +158,13 @@ class ReaderPane(Vertical):
             meta.append(f"▲{row.popularity}")
         header.append("\n")
         header.append_text(text(" · ".join(meta), "dim"))
+        if row is not None and row.why_read:  # F27: triage's one line, from the model
+            header.append("\n")
+            header.append_text(text(row.why_read, "italic"))
+        line = breakdown_line(row.breakdown_json, source_liked=row.source_liked) if row else ""
+        if line:  # how the digest scored it
+            header.append("\n")
+            header.append_text(text(line, "dim"))
         self.query_one("#reader-header", Static).update(header)
 
     def show_status(self, message: str, style: str = "") -> None:

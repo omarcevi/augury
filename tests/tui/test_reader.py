@@ -206,7 +206,7 @@ async def test_late_crawl_delay_notice_is_ignored(make_app):
         assert "crawl delay" not in app.query_one(ReaderPane).status_message
 
 
-@pytest.mark.parametrize(("width", "columns"), [(90, 4), (130, 5), (180, 6)])
+@pytest.mark.parametrize(("width", "columns"), [(90, 5), (130, 6), (180, 8)])
 async def test_table_columns_fit_beside_the_reader(make_app, width, columns):
     app = make_app()
     seed(app)

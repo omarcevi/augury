@@ -49,10 +49,11 @@ async def test_escape_returns_to_the_table(make_app):
 async def test_sort_and_show_cycle_and_update_their_chips(make_app):
     app = make_app()
     async with app.run_test(size=(140, 40)) as pilot:
+        assert app.query_one("#chip-sort", Chip).value == "Score ↓"  # the Digest preset's
         await pilot.press("s")
         assert (
-            app.item_filter.sort == "popular"
-            and app.query_one("#chip-sort", Chip).value == "Popular ↓"
+            app.item_filter.sort == "newest"
+            and app.query_one("#chip-sort", Chip).value == "Newest ↓"
         )
         await pilot.press("v")
         assert app.item_filter.show == "new" and app.query_one("#chip-show", Chip).value == "New"
@@ -171,6 +172,7 @@ async def test_every_visible_chip_value_is_intact_or_ellipsized_at_90_columns(ma
 LONGEST = ItemFilter(
     sources=frozenset({"a-very-long-source-name-from-a-feed"}),
     kinds=frozenset({"paper", "article"}),
+    tags=frozenset({"a-very-long-tag-name-from-triage"}),
     date="30d",
     sort="reading_time",
     show="hidden",
@@ -200,7 +202,8 @@ async def test_the_filter_row_fits_the_screen(make_app, width, longest):
             if shown != chip.value:  # cut, then only ever with an ellipsis
                 assert shown.endswith("…") and chip.value.startswith(shown[:-1]), (chip.id, shown)
         # `t` still cycles the theme (and says so in the hints); only a wide screen has room.
-        assert (len(chips) == 6) is (layout_for(width) == "wide")
+        # Below 100 columns the Tags chip goes too (`#` still opens the picker).
+        assert len(chips) == {"wide": 7, "medium": 6, "narrow": 5}[layout_for(width)]
 
 
 def rows_of(app, widget) -> list[str]:

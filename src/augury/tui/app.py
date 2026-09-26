@@ -43,6 +43,7 @@ from augury.llm.probes import apply_probes, load_probe_results
 from augury.llm.resolver import Resolver, RoleStatus, default_resolver, role_statuses
 from augury.sources.http import HttpClient, PoliteClient
 from augury.tui.clipboard import copy_and_tell, copy_selection
+from augury.tui.digest_view import degraded_banner, hidden_line, status_selection
 from augury.tui.health import load_health
 from augury.tui.keymap import THEMES
 from augury.tui.layout import HIDDEN_COLUMNS, Layout, layout_for
@@ -55,6 +56,8 @@ from augury.tui.query import (
     ItemRow,
     get_item_row,
     list_items,
+    tag_options,
+    triage_hidden,
 )
 from augury.tui.safe_text import text
 from augury.tui.ui_state import FilterState, UiSession, effective_theme
@@ -92,10 +95,12 @@ _ITEMS_ONLY_ACTIONS = frozenset(
         "copy_article",
         "pick_sources",
         "pick_kinds",
+        "pick_tags",
         "pick_date",
         "cycle_sort",
         "cycle_show",
         "focus_search",
+        "toggle_triage_hidden",
     }
 )
 # The mirror image: an action that only makes sense on the Config view (P3), disabled
@@ -106,7 +111,14 @@ _CONFIG_ONLY_ACTIONS = frozenset({"edit_config"})
 # under it: ~0.7 s per z or esc with a long paper (~1,900 widgets). _set_screen_classes restyles
 # only these instead; tests/tui/test_screen_classes.py fails if a rule styles anything else.
 SCREEN_CLASSES = frozenset({"reading", "zen", *(f"layout-{name}" for name in get_args(Layout))})
-SCREEN_CLASS_TARGETS = ("#items-pane", "#reader", "#search", "#chip-sources", "#chip-theme")
+SCREEN_CLASS_TARGETS = (
+    "#items-pane",
+    "#reader",
+    "#search",
+    "#chip-sources",
+    "#chip-tags",
+    "#chip-theme",
+)
 _BARE_ID = re.compile(r"#[\w-]+")
 
 
@@ -124,6 +136,8 @@ class AuguryApp(App[None]):
         Binding("e", "edit_config", "edit config"),
         Binding("S", "pick_sources", "sources"),
         Binding("K", "pick_kinds", "kind"),
+        Binding("number_sign", "pick_tags", "tags"),  # `#`, not the spec's G: G is go-to-bottom
+        Binding("H", "toggle_triage_hidden", "triage-hidden"),
         Binding("D", "pick_date", "date"),
         Binding("s", "cycle_sort", "sort"),
         Binding("v", "cycle_show", "show"),
@@ -182,11 +196,13 @@ class AuguryApp(App[None]):
     def compose(self) -> ComposeResult:
         yield HealthBar(id="health")
         yield FilterChips(id="filters")
+        yield Static(id="banner")  # "ranking degraded: …" after a scout that ranked without AI
         with ContentSwitcher(id="views", initial="main"):
             with Horizontal(id="main"):
                 with Container(id="items-pane"):
                     yield ItemsTable(id="items")
                     yield Static(id="empty")
+                    yield Static(id="triage-hidden")  # "── hidden by triage (2): … ──"
                 yield ReaderPane(id="reader")
             yield SourcesView(id="sources-view")
             yield ConfigView(id="config-view")
@@ -312,6 +328,13 @@ class AuguryApp(App[None]):
             budget=self.config.budget,
         )
         self.query_one(HealthBar).snapshot = snapshot
+        self.refresh_banner()  # this runs on mount and after every scout
+
+    def refresh_banner(self) -> None:
+        message = degraded_banner(self.conn)
+        banner = self.query_one("#banner", Static)
+        banner.update(text(message, one_line=True))  # the reason may come from a provider
+        banner.display = bool(message)
 
     def refresh_colors(self) -> None:
         """Widgets that bake theme colors into Rich text redraw after a theme change."""
@@ -344,6 +367,14 @@ class AuguryApp(App[None]):
         table.display = bool(rows)
         if keep := keep or self.reading_id:
             table.select_key(keep)
+        self.refresh_triage_row()
+
+    def refresh_triage_row(self) -> None:
+        f = self.item_filter
+        hidden = triage_hidden(self.conn, f, now=self.now(), new_since=self.last_visit)
+        row = self.query_one("#triage-hidden", Static)
+        row.update(text(hidden_line(hidden, expanded=f.show_triage_hidden), one_line=True))
+        row.display = hidden.total > 0
 
     def show_items_title(self) -> None:
         """ "Items (12/84)", and the search query where the search box is too narrow to show it."""
@@ -457,9 +488,7 @@ class AuguryApp(App[None]):
             return
         row = self.query_one(ItemsTable).rows_by_key.get(str(event.row_key.value))
         status = self.query_one(StatusLine)
-        status.selection = (
-            text(f"▶ {row.title}  {row.source_id}", one_line=True) if row else text("")
-        )
+        status.selection = text(status_selection(row), one_line=True) if row else text("")
         if row and self.reading_id is None and (item := ItemsRepo(self.conn).get(row.id)):
             self.query_one(ReaderPane).preview(item, row)
 
@@ -800,6 +829,26 @@ class AuguryApp(App[None]):
         options = [("Papers", "paper"), ("Articles", "article")]
         self.push_screen(PickerModal("Kind", options, self.item_filter.kinds), done)
 
+    def action_pick_tags(self) -> None:
+        f = self.item_filter
+        tags = tag_options(self.conn, f, now=self.now(), new_since=self.last_visit)
+        if not tags and not f.tags:
+            self.notify("No tags yet: they come from AI triage.", markup=False)
+            return
+        # A picked tag this view no longer has stays listed, so it can be unticked.
+        tags += [(tag, 0) for tag in sorted(f.tags - {tag for tag, _ in tags})]
+        options = [(text(f"{tag} ({count})", one_line=True), tag) for tag, count in tags]
+
+        def done(chosen: frozenset[str] | None) -> None:
+            if chosen is not None:
+                self.apply_filter(replace(self.item_filter, tags=chosen))
+
+        self.push_screen(PickerModal("Tags", options, f.tags), done)
+
+    def action_toggle_triage_hidden(self) -> None:
+        shown = not self.item_filter.show_triage_hidden
+        self.apply_filter(replace(self.item_filter, show_triage_hidden=shown))
+
     def action_pick_date(self) -> None:
         def done(chosen: str | None) -> None:
             if chosen in DATE_RANGES:
@@ -857,7 +906,9 @@ class AuguryApp(App[None]):
         if self.reading_id is not None:
             self._refresh_row(row.id)
             return
-        rows, _total = list_items(self.conn, replace(self.item_filter, show="all"), now=self.now())
+        # Every row the table has, whatever its view: All alone leaves promo/thin out.
+        everything = replace(self.item_filter, show="all", show_triage_hidden=True)
+        rows, _total = list_items(self.conn, everything, now=self.now())
         table = self.query_one(ItemsTable)
         table.show(
             [r for r in rows if r.id in table.rows_by_key], self.now(), self.get_css_variables()
