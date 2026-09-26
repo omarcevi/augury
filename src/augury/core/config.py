@@ -118,6 +118,10 @@ class RankingConfig(_Section):
         return self
 
 
+class SummarizerConfig(_Section):
+    max_input_chars: int = Field(default=120_000, ge=1_000)  # spec §5.5
+
+
 class TuiConfig(_Section):
     theme: str = "textual-dark"
     # Restore the last filters, search, view and selected row on launch (data/ui_state.json).
@@ -139,6 +143,7 @@ class Config(_Section):
     google: GoogleConfig = Field(default_factory=GoogleConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     ranking: RankingConfig = Field(default_factory=RankingConfig)
+    summarizer: SummarizerConfig = Field(default_factory=SummarizerConfig)
     pricing: dict[str, PriceConfig] = Field(default_factory=dict)  # [pricing."<provider/model>"]
 
 

@@ -197,3 +197,12 @@ def echo_triage(request: LlmRequest, **fields: object) -> str:
     }
     entry.update(fields)
     return json.dumps({"items": [{"idx": i, **entry} for i in idxs]})
+
+
+def summary_reply(first: str = "First point.") -> str:
+    return json.dumps(
+        {
+            "tldr": [first, "Second point.", "Third point."],
+            "takeaways": ["One.", "Two.", "Three."],
+        }
+    )

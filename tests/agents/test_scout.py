@@ -15,7 +15,15 @@ from augury.core.db.sources_repo import SourcesRepo
 from augury.core.lock import ScoutAlreadyRunning, ScoutLock
 from augury.core.models import FetchResult, FetchState, RawItem, Source
 from augury.sources.http import HttpClient, HttpError
-from tests.helpers import NullHttp, ScriptedLlm, echo_triage, fake_resolver
+from tests.helpers import (
+    CountingHttp,
+    NullHttp,
+    ScriptedLlm,
+    echo_triage,
+    fake_resolver,
+    summary_reply,
+)
+from tests.unit.test_extract_html import GENERIC
 
 NOW = datetime(2026, 9, 25, 7, 0, tzinfo=UTC)
 
@@ -191,3 +199,23 @@ async def test_a_ranking_failure_is_recorded_and_the_scout_still_succeeds(paths,
     report = await run_scout(d)
     assert report.status == "ok" and report.new_items == 4 and report.digest is None
     assert RunsRepo(d.conn).last("scout").error == "digest: RuntimeError: bad weights"  # type: ignore[union-attr]
+
+
+async def test_the_scout_reads_ahead_and_summarizes_the_top_items(paths):
+    urls = ["hf-papers/p1", "hf-papers/p2", "hf-blog/b1", "hf-community/c1"]
+    http = CountingHttp({f"https://x.com/{u}": GENERIC for u in urls})
+    d = deps(paths, OK_ADAPTERS)
+    d.http = http
+    d.config = Config(scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=2))
+    d.resolver = fake_resolver(ScriptedLlm(replies=[echo_triage, summary_reply(), summary_reply()]))
+    report = await run_scout(d)
+    assert report.prefetch is not None
+    assert (report.prefetch.extracted, report.prefetch.summarized) == (2, 2)
+    assert len(http.calls) == 2
+
+
+async def test_without_a_key_the_scout_reads_nothing_ahead(paths):
+    d = deps(paths, OK_ADAPTERS)  # NullHttp: any request would fail the test
+    d.config = Config(scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=5))
+    report = await run_scout(d)
+    assert report.status == "ok" and report.prefetch is None

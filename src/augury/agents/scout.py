@@ -15,7 +15,9 @@ from pydantic import BaseModel
 from augury.agents.enrich import enrich_new_articles
 from augury.agents.llm_step import node_caller, run_workflow
 from augury.agents.normalize import store_items
+from augury.agents.prefetch import PrefetchStats, prefetch_top
 from augury.agents.rank import DigestStats, build_digest
+from augury.agents.summarize import Summarizer
 from augury.agents.triage import TriageStats, triage_new_items
 from augury.core.clock import local_day, utcnow
 from augury.core.config import Config, Interests
@@ -49,6 +51,7 @@ class ScoutReport(BaseModel):
     triage: TriageStats | None = None  # M2
     digest: DigestStats | None = None  # M2
     digest_error: str | None = None
+    prefetch: PrefetchStats | None = None  # M2
 
     def problems(self) -> list[str]:
         """Everything that went wrong, for runs.error (spec §11: nothing fails silently)."""
@@ -59,6 +62,8 @@ class ScoutReport(BaseModel):
             found.append(f"triage: {self.triage.degraded}")
         if self.digest_error:
             found.append(f"digest: {self.digest_error}")
+        if self.prefetch is not None and (self.prefetch.stopped or self.prefetch.error):
+            found.append(f"prefetch: {self.prefetch.stopped or self.prefetch.error}")
         return found
 
 
@@ -203,6 +208,30 @@ def build_scout_workflow(
         announce(report)  # the TUI shows the ranked list now, not after the later steps
         return report
 
+    @node(rerun_on_resume=True)  # the summarizer runs as a child node, like triage
+    async def prefetch(ctx: Context, node_input: ScoutReport) -> ScoutReport:
+        summarizer = Summarizer(deps.conn, deps.config, resolver, now=deps.now)
+        limit = deps.config.scout.prefetch_top_n
+        if limit <= 0 or not summarizer.available:  # no key: the scout stays as fast as in M1
+            sink.append(node_input)
+            return node_input
+        try:
+            stats = await prefetch_top(
+                deps.conn,
+                deps.http,
+                summarizer,
+                day=local_day(deps.now()),
+                limit=limit,
+                run_id=run_id,
+                make_call=lambda agent: node_caller(ctx, agent),
+                now=deps.now,
+            )
+        except Exception as exc:  # reading ahead is best effort; it never fails the scout
+            stats = PrefetchStats(error=f"{type(exc).__name__}: {exc}")
+        report = node_input.model_copy(update={"prefetch": stats})
+        sink.append(report)
+        return report
+
     return Workflow(
         name="scout",
         edges=[
@@ -212,6 +241,7 @@ def build_scout_workflow(
             (store, enrich),
             (enrich, triage),
             (triage, rank),
+            (rank, prefetch),
         ],
     )
 

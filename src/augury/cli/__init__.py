@@ -142,6 +142,7 @@ def format_report(report: ScoutReport) -> str:
     if report.enrich_error:
         lines.append(f"  ! {'enrichment':<16} {safe(report.enrich_error)}")
     lines.extend(_triage_lines(report))
+    lines.extend(_prefetch_lines(report))
     return "\n".join(lines)
 
 
@@ -158,6 +159,19 @@ def _triage_lines(report: ScoutReport) -> list[str]:
         f" · {t.failed} failed" if t.failed else ""
     )
     return [f"  ✓ {'triage':<16} {t.triaged} items{extra}"]
+
+
+def _prefetch_lines(report: ScoutReport) -> list[str]:
+    p = report.prefetch
+    if p is None or not (p.extracted or p.stopped or p.error):
+        return []
+    mark = "⚠" if p.stopped or p.error else "✓"
+    line = f"  {mark} {'prefetch':<16} {p.extracted} read ahead · {p.summarized} TL;DRs"
+    if p.stopped:
+        line += f" · stopped: {safe(p.stopped)}"
+    elif p.error:
+        line += f" · {safe(p.error)}"
+    return [line]
 
 
 @main.command()

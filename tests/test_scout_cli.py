@@ -5,6 +5,7 @@ import httpx
 from click.testing import CliRunner
 
 from augury.agents import scout
+from augury.agents.prefetch import PrefetchStats
 from augury.agents.scout import ScoutReport, SourceStats
 from augury.agents.triage import TriageStats
 from augury.cli import format_report, main
@@ -81,3 +82,16 @@ def test_the_report_shows_triage_and_degradation():
     )
     text = format_report(_report(budget))
     assert "⚠ triage" in text and "1/3 items · ranking degraded: daily budget" in text
+
+
+def test_the_report_shows_the_prefetch_line_only_when_it_did_something():
+    report = _report(TriageStats(attempted=3, triaged=3))
+    assert "prefetch" not in format_report(report)  # no key: prefetch never ran
+    idle = report.model_copy(update={"prefetch": PrefetchStats()})
+    assert "prefetch" not in format_report(idle)
+    ok = report.model_copy(update={"prefetch": PrefetchStats(extracted=2, summarized=2)})
+    assert "✓ prefetch         2 read ahead · 2 TL;DRs" in format_report(ok)
+    stopped = PrefetchStats(extracted=1, stopped="RuntimeError: 503 \x1b[2Jboom")
+    text = format_report(report.model_copy(update={"prefetch": stopped}))
+    assert "⚠ prefetch" in text and "stopped: RuntimeError: 503 boom" in text
+    assert "\x1b" not in text  # fetched error text reaches the terminal through safe()
