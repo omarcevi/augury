@@ -9,11 +9,12 @@ from augury import schedule as scheduling
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.cli.output import safe
 from augury.core.clock import utcnow
-from augury.core.config import ConfigError, load_config, load_interests, load_raw_toml
+from augury.core.config import Config, ConfigError, load_config, load_interests, load_raw_toml
 from augury.core.db.open import open_db
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import HOME_ENV, app_paths
 from augury.core.secrets import load_env_file
+from augury.llm.resolver import default_resolver
 from augury.sources.http import PoliteClient
 
 
@@ -44,23 +45,31 @@ def _run_tui() -> None:
 
 
 @main.command()
-@click.option("--offline", is_flag=True, help="Skip checks that need the network.")
+@click.option(
+    "--offline", is_flag=True, help="Skip checks that need the network (and model probes)."
+)
 def doctor(offline: bool) -> None:
-    """Check paths, config, database and (unless --offline) network access."""
+    """Check paths, config, database, the AI models and (unless --offline) the network."""
     paths = app_paths()
     checks = doctor_checks.run_checks(paths)
+    try:
+        config: Config | None = load_config(paths)
+    except ConfigError:
+        config = None  # the config check above already explains it
+    if config is not None:
+        resolver = default_resolver(config)
+        probes = None
+        if not offline:
+            probes = asyncio.run(doctor_checks.probe_models(paths, config, resolver))
+        checks += doctor_checks.check_ai(paths, config, resolver, probes)
     if not offline:
-        try:
-            http_cfg = load_config(paths).http
-        except ConfigError:
-            http_cfg = None
 
         async def network() -> list[doctor_checks.Check]:
-            async with PoliteClient(http_cfg) as http:
+            async with PoliteClient(config.http if config else None) as http:
                 return await doctor_checks.check_network(http)
 
         checks += asyncio.run(network())
-    click.echo(safe(doctor_checks.format_checks(checks)))
+    click.echo(safe(doctor_checks.format_checks(checks)))  # M1.1: keep safe()
     if doctor_checks.failed(checks):
         raise SystemExit(1)
 

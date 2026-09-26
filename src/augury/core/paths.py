@@ -47,6 +47,10 @@ class AppPaths:
     def log_dir(self) -> Path:
         return self.data_dir / "logs"
 
+    @property
+    def probe_cache_file(self) -> Path:
+        return self.cache_dir / "probes.json"
+
     def ensure(self) -> None:
         for directory in (self.config_dir, self.data_dir, self.cache_dir, self.log_dir):
             directory.mkdir(parents=True, exist_ok=True)

@@ -58,6 +58,7 @@ addopts = "-m 'not live'"
 filterwarnings = [
   "ignore:BaseAgentConfig is deprecated:DeprecationWarning",
   "ignore:'_UnionGenericAlias' is deprecated:DeprecationWarning",
+  "ignore:\\[EXPERIMENTAL\\] feature FeatureName.JSON_SCHEMA_FOR_FUNC_DECL:UserWarning",
 ]
 
 [tool.ruff]

@@ -43,3 +43,27 @@ def test_doctor_offline_says_the_network_is_unreachable(paths, respx_mock):
     line = next(line for line in result.output.splitlines() if "network" in line)
     assert line.startswith("✗ network") and "network unreachable" in line
     assert "robots" not in line.split("unreachable")[0] and "disallowed" not in line
+
+
+def test_doctor_without_a_key_explains_how_to_add_one(paths):
+    result = CliRunner().invoke(main, ["doctor", "--offline"])
+    assert result.exit_code == 0, result.output  # AI is optional: a missing key isn't a failure
+    assert "! fast" in result.output and "GEMINI_API_KEY" in result.output
+
+
+def test_doctor_flags_an_env_file_others_can_read(paths):
+    paths.env_file.write_text("GEMINI_API_KEY=secret-value\n")
+    paths.env_file.chmod(0o644)
+    result = CliRunner().invoke(main, ["doctor", "--offline"])
+    assert "! .env" in result.output and "chmod 600" in result.output
+    assert "secret-value" not in result.output
+    assert "✓ fast" in result.output and "key found" in result.output
+
+
+def test_doctor_warns_when_a_model_has_no_known_price(paths):
+    paths.config_file.write_text('[models]\nfast = "gemini/gemini-future"\n')
+    paths.env_file.write_text("GEMINI_API_KEY=x\n")
+    paths.env_file.chmod(0o600)
+    result = CliRunner().invoke(main, ["doctor", "--offline"])
+    assert "! pricing" in result.output and "gemini/gemini-future" in result.output
+    assert "! .env" not in result.output

@@ -1,9 +1,11 @@
 import os
+import stat
 
+import pytest
 from click.testing import CliRunner
 
 from augury.cli import main
-from augury.core.secrets import load_env_file, read_env_file
+from augury.core.secrets import env_file_is_private, load_env_file, read_env_file, write_env_file
 
 
 def test_offline_tests_never_see_provider_keys():
@@ -36,3 +38,23 @@ def test_the_cli_loads_the_env_file_before_any_command(paths):
     assert result.exit_code == 0, result.output
     assert os.environ.get("GEMINI_API_KEY") == "from-file"
     assert "from-file" not in result.output  # keys are never printed
+
+
+def test_the_env_file_is_merged_and_made_private(tmp_path):
+    env = tmp_path / "config" / ".env"
+    env.parent.mkdir()
+    env.write_text("A=1\n")
+    env.chmod(0o644)
+    assert not env_file_is_private(env)
+    write_env_file(env, {"B": "two words"})
+    assert read_env_file(env) == {"A": "1", "B": "two words"}
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600 and env_file_is_private(env)
+
+
+def test_bad_env_entries_are_refused_before_writing(tmp_path):
+    env = tmp_path / ".env"
+    with pytest.raises(ValueError, match="line break"):
+        write_env_file(env, {"A": "x\ny"})
+    with pytest.raises(ValueError, match="variable name"):
+        write_env_file(env, {"NOT A NAME": "x"})
+    assert not env.exists()

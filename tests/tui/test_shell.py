@@ -6,6 +6,7 @@ from textual.widgets import Static
 from augury.agents.normalize import store_items
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.models import RawItem
+from augury.llm.probes import ProbeResult, save_probe_results
 from augury.tui.app import AuguryApp
 from augury.tui.widgets.health_bar import HealthBar
 from augury.tui.widgets.help_overlay import HelpOverlay
@@ -175,3 +176,17 @@ async def test_no_spend_segment_without_ai(make_app):
     app = make_app()
     async with app.run_test(size=(160, 30)):
         assert "Today:" not in app.query_one(HealthBar).render().plain
+
+
+async def test_the_health_bar_shows_doctor_probe_results(make_app, paths):
+    save_probe_results(
+        paths.probe_cache_file,
+        [
+            ProbeResult("fast", "fake/fake-model", True, False, "no tool call", NOW),
+            ProbeResult("smart", "fake/fake-model", False, False, "bad JSON", NOW),
+        ],
+    )
+    app = make_app(resolver=fake_resolver(ScriptedLlm()))
+    async with app.run_test(size=(140, 30)):
+        line = app.query_one(HealthBar).render().plain
+        assert "fast: fake ⚠" in line and "smart: fake ✗" in line

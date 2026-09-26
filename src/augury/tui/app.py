@@ -39,6 +39,7 @@ from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import AppPaths
 from augury.core.text import strip_control_chars
 from augury.extract.service import get_or_extract
+from augury.llm.probes import apply_probes, load_probe_results
 from augury.llm.resolver import Resolver, RoleStatus, default_resolver, role_statuses
 from augury.sources.http import HttpClient, PoliteClient
 from augury.tui.clipboard import copy_and_tell, copy_selection
@@ -174,7 +175,9 @@ class AuguryApp(App[None]):
         self.resolver: Resolver = resolver or default_resolver(config)
         self.interests = interests or Interests()  # M2: triage judges items against these
         # Config and keys don't change while the app runs, so this is computed once.
-        self.ai: tuple[RoleStatus, ...] = role_statuses(config, self.resolver)
+        self.ai: tuple[RoleStatus, ...] = apply_probes(
+            role_statuses(config, self.resolver), load_probe_results(paths.probe_cache_file)
+        )
 
     def compose(self) -> ComposeResult:
         yield HealthBar(id="health")

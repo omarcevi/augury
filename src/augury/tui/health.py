@@ -104,8 +104,14 @@ def health_line(s: HealthSnapshot, palette: Mapping[str, str]) -> Text:
         for i, r in enumerate(s.ai):
             if i:
                 line.append("  ")
+            if r.ok and r.degraded:
+                mark, color = "⚠", "warning"
+            elif r.ok:
+                mark, color = "✓", "success"
+            else:
+                mark, color = "✗", "error"
             line.append(f"{r.role}: {r.provider} ")
-            line.append("✓" if r.ok else "✗", style=palette.get("success" if r.ok else "error", ""))
+            line.append(mark, style=palette.get(color, ""))
     else:
         line.append("  │  AI: not configured", style="dim")  # exactly the M1 text
     spent = s.spend is not None and (s.spend.tokens_in or s.spend.tokens_out)
