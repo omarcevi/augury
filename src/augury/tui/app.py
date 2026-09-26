@@ -461,6 +461,10 @@ class AuguryApp(App[None]):
     @work(exclusive=True, group="reader")
     async def load_content(self, item_id: str, *, restored: bool = False) -> None:
         await self.reader_debounce()  # pressing Enter again cancels this before any request
+        # After every await: quitting tears the screens down while this worker is suspended,
+        # and a widget query then raises NoMatches, which Textual treats as a fatal error.
+        if not self.is_running:
+            return
         reader = self.query_one(ReaderPane)
         item = ItemsRepo(self.conn).get(item_id)
         if item is None or self.http is None or self.reading_id != item_id:
@@ -475,13 +479,15 @@ class AuguryApp(App[None]):
         # Awaited: Markdown resets its cached table of contents when an update starts, so an
         # update still running when the body arrives would cache a contents list without it.
         await reader.show_summary(item)
+        if not self.is_running:
+            return
         self._reanchor()  # the summary may be all there is if extraction fails
         self._extracting = item_id
         try:
             content = await get_or_extract(self.conn, self.http, item, now=self.now())
         except Exception as exc:  # a reader problem must never take the whole app down
             self.log.error(f"reader: extracting {item_id} failed\n{traceback.format_exc()}")
-            if self.reading_id == item_id:
+            if self.reading_id == item_id and self.is_running:
                 reader.show_status(
                     f"Something went wrong ({type(exc).__name__}). "
                     "Press o to open it in your browser.",
@@ -491,6 +497,8 @@ class AuguryApp(App[None]):
         finally:
             if self._extracting == item_id:
                 self._extracting = None
+        if not self.is_running:
+            return
         self._refresh_row(item_id)
         if self.reading_id != item_id:  # the reader was closed meanwhile; the result is cached
             return
@@ -499,7 +507,8 @@ class AuguryApp(App[None]):
         if content.status == "ok":
             reader.show_status("")
             await reader.show_markdown(content.body_md)
-            self._reanchor()  # back to the saved position once the body is laid out
+            if self.is_running:
+                self._reanchor()  # back to the saved position once the body is laid out
         else:
             reader.show_status(
                 f"Couldn't extract this item ({content.error or content.status}). "

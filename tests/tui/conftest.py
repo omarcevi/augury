@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from textual.app import App
+from textual.notifications import SeverityLevel
 from textual.pilot import Pilot
 
 from augury.core.config import Config, ScoutConfig
@@ -50,6 +51,26 @@ def no_real_clipboard(monkeypatch):
     monkeypatch.setattr(
         App, "copy_to_clipboard", lambda self, text: setattr(self, "_clipboard", text)
     )
+
+
+@pytest.fixture(autouse=True)
+def toasts_never_expire(monkeypatch):
+    """Tests read `app._notifications`; on a slow CI runner a 2 s toast can expire before the
+    assertion runs (seen on macOS CI), so in tests every toast outlives the test."""
+    notify = App.notify
+
+    def lasting(
+        self,
+        message: str,
+        *,
+        title: str = "",
+        severity: SeverityLevel = "information",
+        timeout: float | None = None,
+        markup: bool = True,
+    ) -> None:
+        notify(self, message, title=title, severity=severity, timeout=3600, markup=markup)
+
+    monkeypatch.setattr(App, "notify", lasting)
 
 
 async def instant() -> None:
