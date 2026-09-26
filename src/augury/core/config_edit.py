@@ -1,9 +1,12 @@
-"""One setting changed in config.toml, from the config page (P14).
+"""One setting changed in config.toml (P14) or interests.yaml (P15), from the config page.
 
 config.toml is the user's own file, so an edit changes that one key and nothing else: comments,
 order and every other key stay as they are (tomlkit). The file is read again just before each
 edit (it may have changed in $EDITOR), the whole of it with the change must pass the same
 validation as `load_config` before anything is written, and the write is atomic.
+
+interests.yaml is rewritten whole (as `augury init` writes it), keeping the other two keys; it
+too is validated first (the `Interests` model, as `load_interests` does) and written atomically.
 """
 
 import contextlib
@@ -19,12 +22,13 @@ from typing import Any, Literal, get_args, get_origin
 
 import annotated_types
 import tomlkit
+import yaml
 from pydantic import BaseModel, ValidationError
 from pydantic.fields import FieldInfo
 from tomlkit.exceptions import TOMLKitError
 from tomlkit.toml_document import TOMLDocument
 
-from augury.core.config import Config, ConfigError, validate_config
+from augury.core.config import Config, ConfigError, Interests, load_interests, validate_config
 from augury.core.paths import AppPaths
 
 # Config never holds a key (keys live in the environment or .env) -- this is a tripwire in
@@ -116,6 +120,14 @@ def ensure_editable(paths: AppPaths) -> None:
     _read(paths.config_file)
 
 
+def _problems(err: ValidationError, prefix: str = "") -> str:
+    """One line: `where: what` for each problem (the modal shows it under the field)."""
+    return "; ".join(
+        f"{prefix}{'.'.join(str(part) for part in e['loc']) or '(top level)'}: {e['msg']}"
+        for e in err.errors()
+    )
+
+
 def _validate(text: str, path: Path) -> Config:
     """What `text`, as config.toml, loads as: parsed and validated as load_config does it."""
     try:
@@ -125,11 +137,7 @@ def _validate(text: str, path: Path) -> Config:
     except ConfigError as e:
         if not isinstance(cause := e.__cause__, ValidationError):
             raise
-        problems = [
-            f"{'.'.join(str(part) for part in err['loc']) or '(top level)'}: {err['msg']}"
-            for err in cause.errors()
-        ]
-        raise ConfigError("; ".join(problems)) from cause
+        raise ConfigError(_problems(cause)) from cause
 
 
 def _normalize(section: str, field: str, value: object) -> object:
@@ -220,3 +228,76 @@ def _write(path: Path, text: str) -> None:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
         raise ConfigError(f"Couldn't write {path}: {e}") from e
+
+
+# -- interests.yaml (P15) ----------------------------------------------------------------------
+
+INTEREST_FIELDS = ("about", "topics", "avoid")
+
+
+def split_list(text: str) -> list[str]:
+    """ "a, b ,, c" as ["a", "b", "c"]: split on commas, stripped, empties dropped, in order."""
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def load_raw_interests(paths: AppPaths) -> dict[str, Any]:
+    """interests.yaml's own keys, verbatim: only to tell the config page which values came from
+    the file. A missing or unusable file means nothing did (`load_interests` validates)."""
+    path = paths.interests_file
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else None
+    except OSError, UnicodeDecodeError, yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def ensure_interests_editable(paths: AppPaths) -> Interests:
+    """interests.yaml as it is now, or MalformedConfig when it can't be loaded (bad YAML, or a
+    key the model doesn't have, like the old `audience`); a missing file is fine."""
+    path = paths.interests_file
+    try:
+        return load_interests(paths)
+    except (OSError, UnicodeDecodeError) as e:
+        raise MalformedConfig(f"Can't read {path} ({e}). Nothing was changed.") from e
+    except ConfigError as e:
+        fix = "" if "augury init" in str(e) else " Fix it by hand, or run `augury init`."
+        raise MalformedConfig(f"{e}\nNothing was changed.{fix}") from e
+
+
+def _with_interest(paths: AppPaths, field: str, value: object) -> tuple[str, Interests]:
+    """interests.yaml's new text with the change, and what that text loads as."""
+    if field not in INTEREST_FIELDS:
+        raise ConfigError(f"interests.{field} isn't one of {', '.join(INTEREST_FIELDS)}")
+    current = ensure_interests_editable(paths)
+    if isinstance(value, str):  # typed in: a sentence, or a comma-separated list
+        value = value.strip() if field == "about" else split_list(value)
+    try:
+        interests = Interests.model_validate({**current.model_dump(), field: value})
+        text = yaml.safe_dump(interests.model_dump(), sort_keys=False, allow_unicode=True)
+        return text, Interests.model_validate(yaml.safe_load(text))  # exactly what's written
+    except ValidationError as e:
+        raise ConfigError(_problems(e, "interests.")) from e
+
+
+def check_interest(paths: AppPaths, field: str, value: object) -> Interests:
+    """What interests.yaml would load as with this change, or a ConfigError; writes nothing."""
+    return _with_interest(paths, field, value)[1]
+
+
+def set_interest(paths: AppPaths, field: str, value: object) -> Interests:
+    """Write interests.<field> (a list may come as comma-separated text) and return the
+    interests the file now loads as; a missing file is created with all three keys."""
+    text, interests = _with_interest(paths, field, value)
+    _write(paths.interests_file, text)
+    return interests
+
+
+def reset_interest(paths: AppPaths, field: str) -> Interests | None:
+    """Clear interests.<field> ("" or []). None (nothing written) when it's empty already."""
+    if field not in INTEREST_FIELDS:
+        raise ConfigError(f"interests.{field} isn't one of {', '.join(INTEREST_FIELDS)}")
+    if not paths.interests_file.exists():
+        return None
+    if not getattr(ensure_interests_editable(paths), field):
+        return None
+    return set_interest(paths, field, "" if field == "about" else [])

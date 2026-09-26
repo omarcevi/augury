@@ -32,6 +32,7 @@ from augury.core.config import (
     load_config,
     load_raw_toml,
 )
+from augury.core.config_edit import load_raw_interests
 from augury.core.db.contents_repo import ContentsRepo
 from augury.core.db.items_repo import ItemsRepo
 from augury.core.db.runs_repo import RunsRepo
@@ -822,6 +823,8 @@ class AuguryApp(App[None]):
             saved_theme=saved,
             themes=self.available_themes,
             running_theme=self.theme,  # `e` may have changed config.toml's since launch
+            interests=self.interests,  # P15: what the next scout triages with
+            raw_interests=load_raw_interests(self.paths),
         )
         self.query_one(ConfigView).show(report)
 
@@ -854,6 +857,12 @@ class AuguryApp(App[None]):
             self._collapse_tldr(config.tui.tldr == "collapsed")
             if self.session is not None:  # as for the theme, config.toml's wins over h's
                 self.session.update(tldr_collapsed=None)
+        self.refresh_config()
+
+    def adopt_interests(self, interests: Interests) -> None:
+        """P15: interests.yaml was just saved on the config page. The next scout (r, or the
+        auto-scout) is built with self.interests, so it triages with these."""
+        self.interests = interests
         self.refresh_config()
 
     def action_edit_config(self) -> None:

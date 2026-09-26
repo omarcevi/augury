@@ -10,7 +10,14 @@ from augury import schedule as scheduling
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.cli.output import safe
 from augury.core.clock import local_day, utcnow
-from augury.core.config import Config, ConfigError, load_config, load_interests, load_raw_toml
+from augury.core.config import (
+    Config,
+    ConfigError,
+    Interests,
+    load_config,
+    load_interests,
+    load_raw_toml,
+)
 from augury.core.db.open import open_db
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import HOME_ENV, app_paths
@@ -110,6 +117,7 @@ def config(show_path: bool) -> None:
     if show_path:
         click.echo(str(paths.config_file))
         return
+    from augury.core.config_edit import load_raw_interests
     from augury.tui import ui_state  # lazy: keeps plain CLI commands quick
     from augury.tui.widgets.config_view import build_config_report, render_config_text
 
@@ -117,11 +125,24 @@ def config(show_path: bool) -> None:
         cfg = load_config(paths)
     except ConfigError as e:
         raise click.ClickException(str(e)) from e
+    try:
+        interests: Interests | None = load_interests(paths)
+    except ConfigError as e:  # the rest of the report still helps; its rows are left out
+        interests = None
+        click.echo(safe(f"interests.yaml isn't shown: {e}"), err=True)
     conn = open_db(paths)
     try:
         # The theme the app runs with: the one picked with `t` beats config.toml's.
         saved = ui_state.load(paths).theme
-        report = build_config_report(conn, cfg, paths, load_raw_toml(paths), saved_theme=saved)
+        report = build_config_report(
+            conn,
+            cfg,
+            paths,
+            load_raw_toml(paths),
+            saved_theme=saved,
+            interests=interests,
+            raw_interests=load_raw_interests(paths),
+        )
     finally:
         conn.close()
     click.echo(safe(render_config_text(report)))

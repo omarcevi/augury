@@ -61,7 +61,8 @@ async def test_the_settings_table_is_focused_and_lists_every_setting_in_order(ma
             "scout.enrich_max_per_run",
             "scout.prefetch_top_n",
         ]
-        assert "tui.tldr" in names and names[-1] == "pricing.*"
+        assert "tui.tldr" in names and names[-4] == "pricing.*"  # config.toml's end here
+        assert names[-3:] == ["interests.about", "interests.topics", "interests.avoid"]  # P15
         assert view.table.row_count == len(names)
         assert source_cell(app, "tui.tldr") == "default"
 

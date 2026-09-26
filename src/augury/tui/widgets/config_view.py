@@ -24,16 +24,21 @@ from textual.widgets import DataTable, Static
 
 from augury import __version__ as augury_version
 from augury import schedule as scheduling
-from augury.core.config import Config, ConfigError
+from augury.core.config import Config, ConfigError, Interests
 from augury.core.config_edit import (
+    INTEREST_FIELDS,
     SECRET_FIELD,
     bounds,
+    check_interest,
     check_value,
     choices,
     default_of,
     editor_kind,
     ensure_editable,
+    ensure_interests_editable,
+    reset_interest,
     reset_value,
+    set_interest,
     set_value,
 )
 from augury.core.db.connect import vec_version
@@ -47,7 +52,9 @@ from augury.tui.widgets.picker_modal import ChoiceModal
 if TYPE_CHECKING:
     from augury.tui.app import AuguryApp
 
-SettingSource = Literal["default", "config.toml", "last used, ui_state.json", "running"]
+SettingSource = Literal[
+    "default", "config.toml", "interests.yaml", "last used, ui_state.json", "running"
+]
 EditorRunner = Callable[[list[str]], object]
 MASKED_VALUE = "••••••"
 
@@ -122,6 +129,18 @@ def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[S
     return rows
 
 
+def interest_settings(interests: Interests, raw: Mapping[str, Any]) -> list[SettingRow]:
+    """P15: interests.yaml's about, topics and avoid (lists comma-joined). The source is
+    "interests.yaml" only for a key the file has and that isn't empty there."""
+    rows: list[SettingRow] = []
+    for name in INTEREST_FIELDS:
+        value = getattr(interests, name)
+        shown = ", ".join(value) if isinstance(value, list) else value
+        source: SettingSource = "interests.yaml" if raw.get(name) else "default"
+        rows.append(SettingRow("interests", name, shown, source))
+    return rows
+
+
 def theme_setting(
     config: Config,
     raw_toml: Mapping[str, Any],
@@ -188,9 +207,13 @@ def build_config_report(
     saved_theme: str | None,
     themes: Collection[str] = BUILTIN_THEMES,
     running_theme: str | None = None,
+    interests: Interests | None = None,
+    raw_interests: Mapping[str, Any] | None = None,
 ) -> ConfigReport:
     """`saved_theme` is ui_state.json's (the app passes its own copy); `themes` the available
-    ones (Textual's built-in ones, unless the app has more); `running_theme` the app's own."""
+    ones (Textual's built-in ones, unless the app has more); `running_theme` the app's own.
+    `interests` adds interests.yaml's rows after config.toml's (none when it can't be loaded);
+    `raw_interests` is the file's own keys, for their source."""
     records = SourcesRepo(conn).list_all()
     enabled = sum(1 for r in records if r.source.enabled)
     vec = vec_version(conn)
@@ -199,6 +222,8 @@ def build_config_report(
         theme if (row.section, row.field) == ("tui", "theme") else row
         for row in effective_settings(config, raw_toml)
     ]
+    if interests is not None:
+        settings += interest_settings(interests, raw_interests or {})
     return ConfigReport(
         settings=settings,
         paths=[
@@ -277,6 +302,7 @@ _APPLIES: dict[str, Applies] = {
     "http": "scout",  # the next scout builds a new client from it
     "export": "scout",
     "ranking": "scout",
+    "interests": "scout",  # the next scout's triage reads app.interests
 }
 
 
@@ -286,6 +312,14 @@ def applies(section: str, field: str) -> Applies:
 
 def _shown(value: object) -> str:
     return "(blank)" if value == "" else str(value)
+
+
+INTEREST_HINTS = {  # the examples `augury init` gives
+    "about": "What you do, in one line, so the AI can judge what's useful to you, "
+    "e.g. ML engineer building RAG apps",
+    "topics": "comma-separated, e.g. LLM agents, RAG, diffusion models, robotics",
+    "avoid": "comma-separated, e.g. crypto, AI art, funding rounds",
+}
 
 
 def input_hint(section: str, field: str) -> str:
@@ -461,6 +495,13 @@ class ConfigView(VerticalScroll):
     def _editable(self, row: SettingRow) -> bool:
         """Says why not, in a toast, when the selected row can't be changed here."""
         app, name = self._app, f"{row.section}.{row.field}"
+        if row.section == "interests":
+            try:
+                ensure_interests_editable(app.paths)
+            except ConfigError as e:
+                app.notify(str(e), severity="error", markup=False)
+                return False
+            return True
         kind = editor_kind(row.section, row.field)
         if kind == "secret" or row.value == MASKED_VALUE:
             app.notify(f"{name} looks like a secret: it's never shown or edited here", markup=False)
@@ -483,6 +524,9 @@ class ConfigView(VerticalScroll):
             return
         app, section, field = self._app, row.section, row.field
         name = f"{section}.{field}"
+        if section == "interests":
+            self._edit_interest(field)
+            return
         current = getattr(getattr(app.config, section), field)
 
         def save(value: str | None) -> None:
@@ -509,6 +553,36 @@ class ConfigView(VerticalScroll):
             hint = input_hint(section, field)
             app.push_screen(InputModal(name, str(current), hint, problem), save)
 
+    def _edit_interest(self, field: str) -> None:
+        """P15: about is a line of text, topics and avoid a comma-separated list."""
+        app = self._app
+        current = getattr(app.interests, field)
+        value = ", ".join(current) if isinstance(current, list) else current
+
+        def save(typed: str | None) -> None:
+            if typed is not None:
+                self.save_interest(field, typed)
+
+        def problem(typed: str) -> str | None:
+            try:
+                check_interest(app.paths, field, typed)
+            except ConfigError as e:
+                return str(e)
+            return None
+
+        modal = InputModal(f"interests.{field}", value, INTEREST_HINTS[field], problem)
+        app.push_screen(modal, save)
+
+    def save_interest(self, field: str, value: object) -> None:
+        app = self._app
+        try:
+            interests = set_interest(app.paths, field, value)  # validated before it's written
+        except ConfigError as e:
+            app.notify(str(e), severity="error", markup=False)
+            return
+        app.adopt_interests(interests)
+        app.notify(f"Saved interests.{field} · {APPLIES_TEXT['scout']}", markup=False)
+
     def save(self, section: str, field: str, value: object) -> None:
         app = self._app
         try:
@@ -529,6 +603,9 @@ class ConfigView(VerticalScroll):
             return
         app, section, field = self._app, row.section, row.field
         name = f"{section}.{field}"
+        if section == "interests":
+            self._clear_interest(field)
+            return
         try:
             config = reset_value(app.paths, section, field)
         except ConfigError as e:
@@ -543,3 +620,17 @@ class ConfigView(VerticalScroll):
         value = _shown(getattr(getattr(config, section), field))
         when = APPLIES_TEXT[applies(section, field)]
         app.notify(f"Reset {name} to its default: {value} · {when}", markup=False)
+
+    def _clear_interest(self, field: str) -> None:
+        """P15: backspace empties it (about to "", a list to []); an empty one stays as it is."""
+        app = self._app
+        try:
+            interests = reset_interest(app.paths, field)
+        except ConfigError as e:
+            app.notify(str(e), severity="error", markup=False)
+            return
+        if interests is None:
+            app.notify(f"interests.{field} is already empty", markup=False, timeout=2)
+            return
+        app.adopt_interests(interests)
+        app.notify(f"Cleared interests.{field} · {APPLIES_TEXT['scout']}", markup=False)

@@ -64,3 +64,20 @@ def test_config_shows_the_theme_the_app_runs_with(paths, saved, expected):
     result = CliRunner().invoke(main, ["config"])
     assert result.exit_code == 0, result.output
     assert theme_line(result.output) == expected
+
+
+def test_config_lists_the_interests_and_where_they_come_from(paths):
+    paths.interests_file.write_text("about: ML engineer\ntopics: [agents, rag]\n")
+    result = CliRunner().invoke(main, ["config"])
+    assert result.exit_code == 0, result.output
+    assert "interests.about = ML engineer  (interests.yaml)" in result.output
+    assert "interests.topics = agents, rag  (interests.yaml)" in result.output
+    assert "interests.avoid =   (default)" in result.output
+
+
+def test_config_still_prints_with_an_old_interests_yaml(paths):
+    paths.interests_file.write_text("audience: ML engineers\n")
+    result = CliRunner().invoke(main, ["config"])
+    assert result.exit_code == 0, result.output
+    assert "interests.yaml isn't shown" in result.output and "augury init" in result.output
+    assert "interests.about" not in result.stdout and "tui.theme" in result.stdout
