@@ -62,7 +62,7 @@ async def test_items_appear_as_soon_as_they_are_stored(make_app):
         await until(pilot, lambda: table.row_count > 0)
         assert any(w.group == "scout" and not w.is_finished for w in app.workers)
         assert "Scouting…" in app.query_one(HealthBar).render().plain
-        assert "15 new today" in app.query_one(HealthBar).render().plain
+        assert "· 15 new  │" in app.query_one(HealthBar).render().plain  # a first launch
         http.page_gate.set()
         await app.workers.wait_for_complete()
 

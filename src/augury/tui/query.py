@@ -8,10 +8,10 @@ from augury.core.clock import from_iso, local_day, local_day_bounds, to_iso
 
 DateRange = Literal["today", "7d", "30d", "all"]
 SortKey = Literal["newest", "popular", "reading_time"]
-ShowKey = Literal["unread", "all", "saved", "liked", "hidden"]
+ShowKey = Literal["unread", "new", "all", "saved", "liked", "hidden"]
 DATE_RANGES: tuple[DateRange, ...] = ("today", "7d", "30d", "all")
 SORT_KEYS: tuple[SortKey, ...] = ("newest", "popular", "reading_time")
-SHOW_KEYS: tuple[ShowKey, ...] = ("unread", "all", "saved", "liked", "hidden")
+SHOW_KEYS: tuple[ShowKey, ...] = ("unread", "new", "all", "saved", "liked", "hidden")
 WORDS_PER_MINUTE = 230
 
 
@@ -71,6 +71,7 @@ LEFT JOIN signals sig ON sig.item_id = i.id
 """
 _SHOW = {
     "unread": "st.read_at IS NULL AND COALESCE(st.hidden, 0) = 0",
+    "new": "st.read_at IS NULL AND COALESCE(st.hidden, 0) = 0",  # + new_clause()'s date
     "all": "COALESCE(st.hidden, 0) = 0",
     "saved": "st.saved = 1 AND COALESCE(st.hidden, 0) = 0",
     "liked": "st.liked = 1 AND COALESCE(st.hidden, 0) = 0",
@@ -81,6 +82,29 @@ _ORDER = {
     "popular": "popularity IS NULL, popularity DESC, i.first_seen DESC",
     "reading_time": "c.word_count IS NULL, c.word_count ASC, i.first_seen DESC",
 }
+
+
+def new_clause(since: datetime | None) -> tuple[str, list[object]]:
+    """P11's one rule for "new since your last visit", in SQL (`is_new` is the same in Python):
+    unread, not hidden, and first seen after the last visit -- or ever, on a first launch."""
+    if since is None:
+        return _SHOW["new"], []
+    return f"{_SHOW['new']} AND i.first_seen > ?", [to_iso(since)]
+
+
+def is_new(row: ItemRow, since: datetime | None) -> bool:
+    """`new_clause` for one row. first_seen is stored to the second, and to_iso() truncates
+    `since` the same way, so both sides agree even within the visit's first second."""
+    unseen = since is None or row.first_seen > since
+    return row.read_at is None and not row.hidden and unseen
+
+
+def count_new(conn: sqlite3.Connection, since: datetime | None) -> int:
+    clause, args = new_clause(since)
+    sql = (
+        f"SELECT count(*) FROM items i LEFT JOIN item_state st ON st.item_id = i.id WHERE {clause}"
+    )
+    return int(conn.execute(sql, args).fetchone()[0])
 
 
 def fts_query(text: str) -> str | None:
@@ -124,11 +148,16 @@ def list_items(
     now: datetime,
     limit: int = 500,
     pinned: str | None = None,
+    new_since: datetime | None = None,
 ) -> tuple[list[ItemRow], int]:
-    """`pinned` (the item open in the reader) stays listed even if the filter would drop it."""
+    """`pinned` (the item open in the reader) stays listed even if the filter would drop it.
+    `new_since` is the last visit's start, for Show: New (None on a first launch)."""
     where: list[str] = [_SHOW[f.show]]
     args: list[object] = []
-    if (floor := date_floor(f.date, now)) is not None:
+    if f.show == "new":  # the last visit is its own floor: the Date chip doesn't apply
+        clause, args = new_clause(new_since)
+        where = [clause]
+    elif (floor := date_floor(f.date, now)) is not None:
         where.append("i.first_seen >= ?")
         args.append(to_iso(floor))
     if (query := fts_query(f.search)) is not None:

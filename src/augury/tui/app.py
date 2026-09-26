@@ -7,10 +7,12 @@ from datetime import datetime, timedelta
 from typing import ClassVar
 from urllib.parse import urlsplit
 
+from rich.console import RenderableType
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
+from textual.css.query import NoMatches
 from textual.geometry import Size
 from textual.reactive import reactive
 from textual.timer import Timer
@@ -41,6 +43,7 @@ from augury.tui.query import (
     list_items,
 )
 from augury.tui.safe_text import text
+from augury.tui.ui_state import FilterState, UiSession, effective_theme
 from augury.tui.widgets.filter_chips import DATE_LABELS, FilterChips
 from augury.tui.widgets.health_bar import HealthBar
 from augury.tui.widgets.help_overlay import HelpOverlay
@@ -100,6 +103,9 @@ class AuguryApp(App[None]):
     READER_DEBOUNCE_S: ClassVar[float] = 0.3  # spec §8.3
     SEARCH_DEBOUNCE_S: ClassVar[float] = 0.15
     HEALTH_REFRESH_S: ClassVar[float] = 60.0  # keeps "Scout: … (Nm ago)" current
+    UI_STATE_SAVE_S: ClassVar[float] = 2.0  # P2: saves the state (only if it changed) this often
+    session: UiSession | None = None  # ui_state.json for this run: theme, last state, last visit
+    last_visit: datetime | None = None  # P11: the previous run's start; None on a first launch
 
     def __init__(
         self,
@@ -146,8 +152,7 @@ class AuguryApp(App[None]):
         self.watch(viewer, "scroll_y", self._on_reader_scroll, init=False)
         self.watch(viewer, "virtual_size", self._on_reader_relayout, init=False)
         self.apply_layout(self.size.width)
-        wanted = self.config.tui.theme
-        self.theme = wanted if wanted in self.available_themes else "textual-dark"
+        self.begin_session()
         self.refresh_health()
         self.reload_items()
         self.query_one(FilterChips).show_filter(self.item_filter, self.theme)
@@ -157,6 +162,7 @@ class AuguryApp(App[None]):
         # "S" keypress would be swallowed as text instead of reaching the app bindings.
         self.query_one(ItemsTable).focus()
         self.set_interval(self.HEALTH_REFRESH_S, self._tick_health)
+        self.restore_session()
         self.maybe_auto_scout()
 
     def _tick_health(self) -> None:
@@ -247,7 +253,9 @@ class AuguryApp(App[None]):
             self.refresh_sources()
 
     def refresh_health(self) -> None:
-        snapshot = load_health(self.conn, self.now(), scouting=self.scouting)
+        snapshot = load_health(
+            self.conn, self.now(), scouting=self.scouting, new_since=self.last_visit
+        )
         self.query_one(HealthBar).snapshot = snapshot
 
     def refresh_colors(self) -> None:
@@ -260,7 +268,11 @@ class AuguryApp(App[None]):
     def reload_items(self, *, keep: str | None = None) -> None:
         # While reading, the open item stays listed and selected, whatever the filter says.
         rows, total = list_items(
-            self.conn, self.item_filter, now=self.now(), pinned=self.reading_id
+            self.conn,
+            self.item_filter,
+            now=self.now(),
+            pinned=self.reading_id,
+            new_since=self.last_visit,
         )
         table = self.query_one(ItemsTable)
         table.show(rows, self.now(), self.get_css_variables())
@@ -279,6 +291,66 @@ class AuguryApp(App[None]):
         close = getattr(self.http, "aclose", None)
         if close is not None:
             await close()
+
+    def exit(
+        self, result: None = None, return_code: int = 0, message: RenderableType | None = None
+    ) -> None:
+        try:
+            self.save_ui_state()  # P2: now, while the widgets are still there (not on Unmount)
+            if self.session is not None:
+                self.session.end(now=self.now())  # P11: a quick look isn't a visit
+        except Exception:  # the saved state is a convenience: it must never stop a quit
+            self.log.error(f"saving ui_state.json failed\n{traceback.format_exc()}")
+        finally:
+            super().exit(result, return_code, message)
+
+    def begin_session(self) -> None:
+        """P1, P11 and P2's filters, from ui_state.json, before anything is drawn."""
+        self.session = session = UiSession.begin(self.paths, now=self.now())
+        self.last_visit = self.query_one(ItemsTable).new_since = session.last_visit
+        themes = self.available_themes
+        self.theme = effective_theme(session.previous.theme, self.config.tui.theme, themes)
+        self.watch(self, "theme", session.remember_theme, init=False)  # `t` (or ctrl+p) from now on
+        if self.config.tui.remember_state:
+            sources = {r.source.id for r in SourcesRepo(self.conn).list_all()}
+            self.item_filter = session.previous.filter.to_filter(sources)
+            search = self.query_one("#search", Input)
+            with search.prevent(Input.Changed):  # applied already; again would reset the row
+                search.value = self.item_filter.search
+
+    def restore_session(self) -> None:
+        """P2: the last run's row, view and (if asked) open article; what's gone is skipped."""
+        last = self.session.previous if self.session else None
+        if last is not None and self.config.tui.remember_state:
+            if last.selected_item_id:
+                self.query_one(ItemsTable).select_key(last.selected_item_id)
+            item_id = last.reading_item_id if self.config.tui.reopen_last_article else None
+            if item_id and ItemsRepo(self.conn).get(item_id) is not None:
+                self.open_item(item_id, restored=True)
+                if last.reading_progress is not None:  # where it was left, not the furthest read
+                    self._scroll_frac = last.reading_progress
+                self.reload_items()  # pinned: listed and selected, whatever the filter says
+            if last.view == "sources":
+                self.action_show_sources()
+        self.set_interval(self.UI_STATE_SAVE_S, self.save_ui_state)
+
+    def save_ui_state(self) -> None:
+        """P2: record the filters, view, row and open article (written only if they changed)."""
+        if self.session is None or not self.is_running:
+            return
+        try:
+            current = self.query_one(ItemsTable).current_row()
+            showing = self.query_one(ContentSwitcher).current
+        except NoMatches:  # already being torn down
+            return
+        reading = self.reading_id
+        self.session.update(
+            filter=FilterState.of(self.item_filter),
+            view="sources" if showing == "sources-view" else "items",
+            selected_item_id=current.id if current else None,
+            reading_item_id=reading,
+            reading_progress=min(1.0, max(0.0, self._scroll_frac)) if reading else None,
+        )
 
     def apply_layout(self, width: int) -> None:
         layout = layout_for(width)
@@ -310,7 +382,7 @@ class AuguryApp(App[None]):
             return
         self.open_item(str(event.row_key.value))
 
-    def open_item(self, item_id: str) -> None:
+    def open_item(self, item_id: str, *, restored: bool = False) -> None:
         viewer = self.query_one(ReaderPane).viewer
         self.reading_id = None  # the old document scrolls back to the top unrecorded
         viewer.scroll_home(animate=False, immediate=True)
@@ -322,18 +394,20 @@ class AuguryApp(App[None]):
         self.mode = "READ"
         # MarkdownViewer itself can't take focus; its document can, so the reader keys work.
         viewer.document.focus()
-        self.load_content(item_id)
+        self.load_content(item_id, restored=restored)
 
     @work(exclusive=True, group="reader")
-    async def load_content(self, item_id: str) -> None:
+    async def load_content(self, item_id: str, *, restored: bool = False) -> None:
         await self.reader_debounce()  # pressing Enter again cancels this before any request
         reader = self.query_one(ReaderPane)
         item = ItemsRepo(self.conn).get(item_id)
         if item is None or self.http is None or self.reading_id != item_id:
             return
         # Only now: items skipped past with n/p inside the debounce stay unread.
-        StateRepo(self.conn).mark_opened(item_id, now=self.now())
+        if not restored:  # P2: reopening the last article at launch isn't the user opening it
+            StateRepo(self.conn).mark_opened(item_id, now=self.now())
         self._refresh_row(item_id)
+        self.refresh_health()  # P11: one fewer new item
         reader.show_header(item, self.query_one(ItemsTable).rows_by_key.get(item_id))
         reader.show_status("Extracting…", "dim")
         # Awaited: Markdown resets its cached table of contents when an update starts, so an
@@ -569,6 +643,7 @@ class AuguryApp(App[None]):
         if (row := self._target()) is None:
             return
         on = StateRepo(self.conn).toggle(row.id, field, now=self.now())
+        self.refresh_health()  # P11: hidden items don't count as new
         if self.reading_id is not None:
             self._refresh_row(row.id)  # in place: a re-query would drop the open item from Unread
             if field == "hidden":  # the open item stays listed, so nothing else shows it
@@ -597,6 +672,7 @@ class AuguryApp(App[None]):
         StateRepo(self.conn).mark_opened(
             row.id, now=self.now()
         )  # read elsewhere still counts as opened
+        self.refresh_health()  # P11: one fewer new item
         if self.reading_id is not None:
             self._refresh_row(row.id)
             return

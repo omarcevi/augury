@@ -1,5 +1,6 @@
 Screen { layout: vertical; }
 #health { height: 3; border: round $primary; padding: 0 1; }
+#health { text-wrap: nowrap; text-overflow: ellipsis; }  /* one line, clipped with … */
 #views { height: 1fr; }
 #main { height: 1fr; }
 #items-pane { border: round $primary; border-title-color: $accent; height: 1fr; }

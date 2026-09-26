@@ -49,3 +49,17 @@ def test_interests_yaml_is_loaded(paths):
 def test_empty_interests_file_is_fine(paths):
     paths.interests_file.write_text("")
     assert load_interests(paths).avoid == []
+
+
+def test_remember_state_is_on_and_reopening_the_last_article_is_off_by_default(paths):
+    tui = load_config(paths).tui
+    assert tui.remember_state is True and tui.reopen_last_article is False
+    paths.config_file.write_text("[tui]\nremember_state = false\nreopen_last_article = true\n")
+    tui = load_config(paths).tui
+    assert tui.remember_state is False and tui.reopen_last_article is True
+
+
+def test_remember_state_must_be_a_boolean(paths):
+    paths.config_file.write_text('[tui]\nremember_state = "sometimes"\n')
+    with pytest.raises(ConfigError, match=r"tui\.remember_state: Input should be a valid boolean"):
+        load_config(paths)

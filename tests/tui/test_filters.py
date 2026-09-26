@@ -51,6 +51,8 @@ async def test_sort_and_show_cycle_and_update_their_chips(make_app):
             and app.query_one("#chip-sort", Chip).value == "Popular ↓"
         )
         await pilot.press("v")
+        assert app.item_filter.show == "new" and app.query_one("#chip-show", Chip).value == "New"
+        await pilot.press("v")
         assert app.item_filter.show == "all" and app.query_one("#chip-show", Chip).value == "All"
 
 

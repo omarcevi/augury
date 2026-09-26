@@ -6,9 +6,9 @@ from datetime import datetime
 
 from rich.text import Text
 
-from augury.core.clock import local_day, local_day_bounds, to_iso
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
+from augury.tui.query import count_new
 
 
 @dataclass(frozen=True)
@@ -16,30 +16,31 @@ class HealthSnapshot:
     as_of: datetime
     last_scout_at: datetime | None
     last_scout_status: str | None
-    new_today: int
+    new_items: int  # P11: the same rule as the rows' ✦ marker, so the two always agree
     sources: dict[str, int] = field(default_factory=dict)
     scouting: bool = False
     enrich_error: str | None = None
+    new_since: datetime | None = None  # the last visit's start; None on a first launch
 
 
 def load_health(
-    conn: sqlite3.Connection, now: datetime, *, scouting: bool = False
+    conn: sqlite3.Connection,
+    now: datetime,
+    *,
+    scouting: bool = False,
+    new_since: datetime | None = None,
 ) -> HealthSnapshot:
     last = RunsRepo(conn).last("scout", statuses=("ok", "partial", "failed"))
-    start, end = local_day_bounds(local_day(now))
-    new_today = conn.execute(
-        "SELECT count(*) FROM items WHERE first_seen >= ? AND first_seen < ?",
-        (to_iso(start), to_iso(end)),
-    ).fetchone()[0]
     counts = Counter(r.health for r in SourcesRepo(conn).list_all(enabled_only=True))
     return HealthSnapshot(
         now,
         last.started_at if last else None,
         last.status if last else None,
-        int(new_today),
-        dict(counts),
-        scouting,
-        last.stats.get("enrich_error") if last else None,
+        new_items=count_new(conn, new_since),
+        sources=dict(counts),
+        scouting=scouting,
+        enrich_error=last.stats.get("enrich_error") if last else None,
+        new_since=new_since,
     )
 
 
@@ -69,7 +70,7 @@ def health_line(s: HealthSnapshot, palette: Mapping[str, str]) -> Text:
         line.append(label, style=palette.get("error", "") if failed else "")
         if s.enrich_error:
             line.append(" · enrich ⚠", style=palette.get("warning", ""))
-    line.append(f" · {s.new_today} new today")
+    line.append(f" · {s.new_items} new" + (" since last visit" if s.new_since else ""))
     line.append("  │  Sources: ")
     ok = s.sources.get("ok", 0) + s.sources.get("never", 0)
     line.append(f"{ok} ✓", style=palette.get("success", ""))

@@ -9,11 +9,13 @@ DATE_LABELS = {"today": "Today", "7d": "7 days", "30d": "30 days", "all": "All t
 SORT_LABELS = {"newest": "Newest ↓", "popular": "Popular ↓", "reading_time": "Shortest ↑"}
 SHOW_LABELS = {
     "unread": "Unread",
+    "new": "New",
     "all": "All",
     "saved": "Saved",
     "liked": "Liked",
     "hidden": "Hidden",
 }
+NEW_DATE_LABEL = "Last visit"  # Show: New ignores the Date chip; it lists since the last visit
 
 
 def selection_label(values: frozenset[str]) -> str:
@@ -48,7 +50,8 @@ class FilterChips(Horizontal):
     def show_filter(self, f: ItemFilter, theme: str) -> None:
         self.query_one("#chip-sources", Chip).set_value(selection_label(f.sources))
         self.query_one("#chip-kind", Chip).set_value(selection_label(f.kinds))
-        self.query_one("#chip-date", Chip).set_value(DATE_LABELS[f.date])
+        date = NEW_DATE_LABEL if f.show == "new" else DATE_LABELS[f.date]
+        self.query_one("#chip-date", Chip).set_value(date)
         self.query_one("#chip-sort", Chip).set_value(SORT_LABELS[f.sort])
         self.query_one("#chip-show", Chip).set_value(SHOW_LABELS[f.show])
         self.query_one("#chip-theme", Chip).set_value(theme)

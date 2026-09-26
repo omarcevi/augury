@@ -5,7 +5,7 @@ from rich.text import Text
 from textual import events
 from textual.widgets import DataTable
 
-from augury.tui.query import ItemRow
+from augury.tui.query import ItemRow, is_new
 from augury.tui.safe_text import text
 
 # (key, label, fixed width); the title column takes whatever width is left.
@@ -40,6 +40,8 @@ class ItemsTable(DataTable[Text]):
         self.hidden_columns: frozenset[str] = frozenset()
         self._drawn_with: tuple[datetime, Mapping[str, str]] | None = None
         self._measured: tuple[int, frozenset[str]] | None = None
+        # P11: the last visit's start (None on a first launch, when every unread row is new).
+        self.new_since: datetime | None = None
 
     def _title_width(self) -> int:
         fixed = sum((w or 0) + 2 for key, _, w in COLUMNS if w and key not in self.hidden_columns)
@@ -52,6 +54,10 @@ class ItemsTable(DataTable[Text]):
             "read": ("○", "dim"),
         }[r.read_state]
         title = text(r.title, one_line=True)
+        if is_new(r, self.new_since):
+            # $text-accent, not $accent: that's only 1.4:1 on textual-light's surface.
+            marker = f"bold {palette.get('text-accent') or palette.get('accent', '')}"
+            title = Text.assemble(("✦ ", marker), title, no_wrap=True, overflow="ellipsis")
         if r.liked:
             title.append(" ★", style=palette.get("success", ""))
         if r.saved:

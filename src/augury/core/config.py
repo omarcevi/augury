@@ -34,6 +34,10 @@ class ExportConfig(_Section):
 
 class TuiConfig(_Section):
     theme: str = "textual-dark"
+    # Restore the last filters, search, view and selected row on launch (data/ui_state.json).
+    remember_state: bool = True
+    # With remember_state, also reopen the article that was open at exit, where you left it.
+    reopen_last_article: bool = False
 
 
 class Config(_Section):

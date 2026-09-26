@@ -39,6 +39,11 @@ class AppPaths:
         return self.data_dir / "scout.lock"
 
     @property
+    def ui_state_file(self) -> Path:
+        """What the TUI remembers between runs (theme, filters, last visit); never config.toml."""
+        return self.data_dir / "ui_state.json"
+
+    @property
     def log_dir(self) -> Path:
         return self.data_dir / "logs"
 
