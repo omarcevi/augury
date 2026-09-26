@@ -7,3 +7,5 @@ dist/
 .DS_Store
 evals/results/
 tests/**/__snapshots__/**/*.raw
+.vscode
+.env
