@@ -1,7 +1,7 @@
 import tomllib
 from importlib.resources import files
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 
 import yaml
 from pydantic import (
@@ -11,6 +11,7 @@ from pydantic import (
     Field,
     ValidationError,
     field_validator,
+    model_validator,
 )
 
 from augury.core.paths import AppPaths
@@ -95,6 +96,28 @@ class PriceConfig(_Section):
     output_per_mtok: float = Field(ge=0)
 
 
+class RankingConfig(_Section):
+    # Spec §5.4 defaults. Only the ratios matter: weights are renormalized for each item.
+    w_rel: float = Field(default=0.50, ge=0)
+    w_pop: float = Field(default=0.25, ge=0)
+    w_rec: float = Field(default=0.15, ge=0)
+    w_nov: float = Field(default=0.10, ge=0)
+    # No model key (user decision 2026-09-26): your ★ likes plus recency. Until you like
+    # something these are missing, and the digest ranks on w_pop and w_rec above.
+    w_topic: float = Field(default=0.45, ge=0)  # titles and summaries like the ones you liked
+    w_source: float = Field(default=0.20, ge=0)  # sources you like often
+    w_fresh: float = Field(default=0.35, ge=0)  # recency, in this mode
+    like_terms: int = Field(default=30, ge=1, le=200)  # top terms taken from liked items
+
+    @model_validator(mode="after")
+    def _some_weight(self) -> Self:
+        if self.w_rel + self.w_pop + self.w_rec + self.w_nov <= 0:
+            raise ValueError("at least one [ranking] weight must be above 0")
+        if self.w_topic + self.w_source + self.w_fresh <= 0:
+            raise ValueError("at least one of w_topic, w_source, w_fresh must be above 0")
+        return self
+
+
 class TuiConfig(_Section):
     theme: str = "textual-dark"
     # Restore the last filters, search, view and selected row on launch (data/ui_state.json).
@@ -115,6 +138,7 @@ class Config(_Section):
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     google: GoogleConfig = Field(default_factory=GoogleConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    ranking: RankingConfig = Field(default_factory=RankingConfig)
     pricing: dict[str, PriceConfig] = Field(default_factory=dict)  # [pricing."<provider/model>"]
 
 

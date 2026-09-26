@@ -4,8 +4,11 @@ from typing import ClassVar
 
 import pytest
 
-from augury.agents.scout import ScoutDeps, recover_interrupted_runs, run_scout
+from augury.agents import scout
+from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
+from augury.core.clock import local_day
 from augury.core.config import Config, ScoutConfig
+from augury.core.db.digest_repo import DigestRepo
 from augury.core.db.open import open_db
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
@@ -161,3 +164,30 @@ async def test_a_triage_failure_is_recorded_on_the_run(paths):
     assert report.triage is not None and report.triage.degraded_kind == "provider"
     error = RunsRepo(d.conn).last("scout").error  # type: ignore[union-attr]
     assert error is not None and error.startswith("triage: provider error: RuntimeError: 503")
+
+
+async def test_the_scout_builds_todays_digest_even_without_a_key(paths):
+    d = deps(paths, OK_ADAPTERS)
+    report = await run_scout(d)
+    assert report.digest is not None and report.digest.items == 4
+    assert report.digest.without_relevance == 4 and report.digest.mode == "cold"  # no key, no ★
+    assert len(DigestRepo(d.conn).for_day(local_day(NOW))) == 4
+
+
+async def test_the_ranked_list_is_announced_before_later_steps(paths):
+    seen: list[ScoutReport] = []
+    d = deps(paths, OK_ADAPTERS)
+    d.on_stored = seen.append
+    await run_scout(d)
+    assert [r.digest is not None for r in seen] == [False, True]  # store, then rank
+
+
+async def test_a_ranking_failure_is_recorded_and_the_scout_still_succeeds(paths, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("bad weights")
+
+    monkeypatch.setattr(scout, "build_digest", broken)
+    d = deps(paths, OK_ADAPTERS)
+    report = await run_scout(d)
+    assert report.status == "ok" and report.new_items == 4 and report.digest is None
+    assert RunsRepo(d.conn).last("scout").error == "digest: RuntimeError: bad weights"  # type: ignore[union-attr]

@@ -15,14 +15,15 @@ from pydantic import BaseModel
 from augury.agents.enrich import enrich_new_articles
 from augury.agents.llm_step import node_caller, run_workflow
 from augury.agents.normalize import store_items
+from augury.agents.rank import DigestStats, build_digest
 from augury.agents.triage import TriageStats, triage_new_items
-from augury.core.clock import utcnow
+from augury.core.clock import local_day, utcnow
 from augury.core.config import Config, Interests
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.lock import ScoutAlreadyRunning, ScoutLock
 from augury.core.models import FetchResult, Source
-from augury.llm.resolver import Resolver, default_resolver
+from augury.llm.resolver import ModelUnavailable, Resolver, default_resolver
 from augury.sources.base import Adapter
 from augury.sources.http import HttpClient
 from augury.sources.registry import ADAPTERS
@@ -46,6 +47,8 @@ class ScoutReport(BaseModel):
     enriched: int = 0
     enrich_error: str | None = None
     triage: TriageStats | None = None  # M2
+    digest: DigestStats | None = None  # M2
+    digest_error: str | None = None
 
     def problems(self) -> list[str]:
         """Everything that went wrong, for runs.error (spec §11: nothing fails silently)."""
@@ -54,6 +57,8 @@ class ScoutReport(BaseModel):
             found.append(f"enrich: {self.enrich_error}")
         if self.triage is not None and self.triage.degraded_kind in ("budget", "provider"):
             found.append(f"triage: {self.triage.degraded}")
+        if self.digest_error:
+            found.append(f"digest: {self.digest_error}")
         return found
 
 
@@ -179,6 +184,25 @@ def build_scout_workflow(
         sink.append(report)
         return report
 
+    def rank(node_input: ScoutReport) -> ScoutReport:
+        now = deps.now()
+        try:  # ranking is code: it runs with or without a key (spec §5.3)
+            try:
+                resolver("fast", "triage")  # builds the model object only; nothing is sent
+                ai = True
+            except ModelUnavailable:  # no key: your likes + recency (user decision 2026-09-26)
+                ai = False
+            stats = build_digest(
+                deps.conn, local_day(now), now=now, config=deps.config.ranking, ai=ai
+            )
+        except Exception as exc:  # the items are stored; a ranking bug must not lose the scout
+            report = node_input.model_copy(update={"digest_error": f"{type(exc).__name__}: {exc}"})
+        else:
+            report = node_input.model_copy(update={"digest": stats})
+        sink.append(report)
+        announce(report)  # the TUI shows the ranked list now, not after the later steps
+        return report
+
     return Workflow(
         name="scout",
         edges=[
@@ -187,6 +211,7 @@ def build_scout_workflow(
             (fetch_source, store),
             (store, enrich),
             (enrich, triage),
+            (triage, rank),
         ],
     )
 
