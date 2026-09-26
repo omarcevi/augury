@@ -1,4 +1,6 @@
 import asyncio
+import json
+import re
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import Any
@@ -178,3 +180,20 @@ def fake_resolver(
         return ResolvedModel(spec=spec, provider=spec.partition("/")[0], native=native, llm=model)
 
     return resolve
+
+
+_IDX_LIST = re.compile(r"exactly one entry for each idx: ([\d, ]+)\.")
+
+
+def echo_triage(request: LlmRequest, **fields: object) -> str:
+    """A valid triage reply covering every idx the request asked for (the last idx list)."""
+    lists = _IDX_LIST.findall(request_text(request))
+    idxs = [int(i) for i in lists[-1].split(", ")] if lists else []
+    entry: dict[str, object] = {
+        "relevance": 7,
+        "why_read": "Worth a look.",
+        "tags": ["agents"],
+        "flags": [],
+    }
+    entry.update(fields)
+    return json.dumps({"items": [{"idx": i, **entry} for i in idxs]})

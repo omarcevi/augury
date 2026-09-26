@@ -5,7 +5,9 @@ import httpx
 from click.testing import CliRunner
 
 from augury.agents import scout
-from augury.cli import main
+from augury.agents.scout import ScoutReport, SourceStats
+from augury.agents.triage import TriageStats
+from augury.cli import format_report, main
 
 FIXTURES = Path(__file__).parent / "fixtures" / "hf"
 
@@ -50,3 +52,32 @@ def test_scout_command_reports_a_failed_enrichment(paths, respx_mock, monkeypatc
         line.startswith("  ! enrichment") and "RuntimeError: enrich exploded" in line
         for line in lines
     )
+
+
+def _report(triage: TriageStats) -> ScoutReport:
+    return ScoutReport(
+        run_id="r",
+        status="ok",
+        new_items=3,
+        triage=triage,
+        sources={"hf-blog": SourceStats(fetched=3, new=3)},
+    )
+
+
+def test_the_report_has_no_ai_line_without_a_key():
+    text = format_report(
+        _report(
+            TriageStats(attempted=3, degraded="AI not configured", degraded_kind="not_configured")
+        )
+    )
+    assert "triage" not in text  # exactly the M1 report
+
+
+def test_the_report_shows_triage_and_degradation():
+    ok = format_report(_report(TriageStats(attempted=3, triaged=3, hidden=1)))
+    assert "✓ triage" in ok and "3 items · 1 hidden by triage" in ok
+    budget = TriageStats(
+        attempted=3, triaged=1, degraded="daily budget of $1.00 reached", degraded_kind="budget"
+    )
+    text = format_report(_report(budget))
+    assert "⚠ triage" in text and "1/3 items · ranking degraded: daily budget" in text

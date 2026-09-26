@@ -9,7 +9,7 @@ from augury import schedule as scheduling
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.cli.output import safe
 from augury.core.clock import utcnow
-from augury.core.config import ConfigError, load_config, load_raw_toml
+from augury.core.config import ConfigError, load_config, load_interests, load_raw_toml
 from augury.core.db.open import open_db
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import HOME_ENV, app_paths
@@ -33,11 +33,12 @@ def _run_tui() -> None:
     paths = app_paths()
     try:
         config = load_config(paths)
+        interests = load_interests(paths)
     except ConfigError as e:
         raise click.ClickException(str(e)) from e
     conn = open_db(paths)
     try:
-        AuguryApp(conn=conn, config=config, paths=paths).run()
+        AuguryApp(conn=conn, config=config, paths=paths, interests=interests).run()
     finally:
         conn.close()
 
@@ -131,7 +132,23 @@ def format_report(report: ScoutReport) -> str:
             lines.append(f"  ✓ {source_id:<16} {s.fetched} fetched · {s.new} new{extra}")
     if report.enrich_error:
         lines.append(f"  ! {'enrichment':<16} {safe(report.enrich_error)}")
+    lines.extend(_triage_lines(report))
     return "\n".join(lines)
+
+
+def _triage_lines(report: ScoutReport) -> list[str]:
+    t = report.triage
+    if t is None or not t.attempted or t.degraded_kind == "not_configured":
+        return []  # no key: the report stays exactly as it was in M1
+    if t.degraded:
+        return [
+            f"  ⚠ {'triage':<16} {t.triaged}/{t.attempted} items"
+            f" · ranking degraded: {safe(t.degraded)}"
+        ]
+    extra = (f" · {t.hidden} hidden by triage" if t.hidden else "") + (
+        f" · {t.failed} failed" if t.failed else ""
+    )
+    return [f"  ✓ {'triage':<16} {t.triaged} items{extra}"]
 
 
 @main.command()
@@ -141,6 +158,7 @@ def scout(only: str | None) -> None:
     paths = app_paths()
     try:
         config = load_config(paths)
+        interests = load_interests(paths)
     except ConfigError as e:
         raise click.ClickException(str(e)) from e
     conn = open_db(paths)
@@ -149,7 +167,13 @@ def scout(only: str | None) -> None:
     async def go() -> ScoutReport:
         async with PoliteClient(config.http) as http:
             return await run_scout(
-                ScoutDeps(conn=conn, http=http, config=config, lock_path=paths.scout_lock_file),
+                ScoutDeps(
+                    conn=conn,
+                    http=http,
+                    config=config,
+                    lock_path=paths.scout_lock_file,
+                    interests=interests,
+                ),
                 only=only,
             )
 

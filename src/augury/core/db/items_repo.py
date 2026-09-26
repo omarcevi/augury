@@ -1,6 +1,8 @@
 import json
 import sqlite3
+from collections.abc import Sequence
 from datetime import date, datetime
+from itertools import batched
 
 from augury.core.clock import from_iso, local_day, to_iso
 from augury.core.models import Item, NormalizedItem, Signals, is_old
@@ -142,3 +144,22 @@ class ItemsRepo:
             "UPDATE items SET summary = ?, content_hash = ?, enriched_at = ? WHERE id = ?",
             (new_summary, content_hash(row["title"], new_summary), to_iso(now), item_id),
         )
+
+    def latest_signals(self, item_ids: Sequence[str]) -> dict[str, Signals]:
+        """Each item's most recent signals row, for triage payloads and ranking."""
+        found: dict[str, Signals] = {}
+        for chunk in batched(item_ids, 500, strict=False):  # well under SQLite's parameter limit
+            marks = ",".join("?" * len(chunk))
+            rows = self.conn.execute(
+                f"SELECT s.* FROM signals s WHERE s.item_id IN ({marks}) AND s.observed_on ="
+                " (SELECT MAX(s2.observed_on) FROM signals s2 WHERE s2.item_id = s.item_id)",
+                chunk,
+            )
+            for r in rows:
+                found[r["item_id"]] = Signals(
+                    upvotes=r["upvotes"],
+                    upvotes7d=r["upvotes7d"],
+                    github_stars=r["github_stars"],
+                    comments=r["comments"],
+                )
+        return found

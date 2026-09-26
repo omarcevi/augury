@@ -12,7 +12,7 @@ from augury.core.db.sources_repo import SourcesRepo
 from augury.core.lock import ScoutAlreadyRunning, ScoutLock
 from augury.core.models import FetchResult, FetchState, RawItem, Source
 from augury.sources.http import HttpClient, HttpError
-from tests.helpers import NullHttp
+from tests.helpers import NullHttp, ScriptedLlm, echo_triage, fake_resolver
 
 NOW = datetime(2026, 9, 25, 7, 0, tzinfo=UTC)
 
@@ -34,7 +34,7 @@ class FakeAdapter:
 
 
 def deps(paths, adapters, now=NOW) -> ScoutDeps:
-    config = Config(scout=ScoutConfig(enrich_max_per_run=0))
+    config = Config(scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=0))
     return ScoutDeps(
         conn=open_db(paths, now=now),
         http=NullHttp(),
@@ -134,3 +134,30 @@ async def test_a_failing_on_stored_callback_never_fails_the_scout(paths, caplog)
     report = await run_scout(d)
     assert report.status == "ok" and report.new_items == 4
     assert any(r.message == "on_stored callback failed" and r.exc_info for r in caplog.records)
+
+
+async def test_the_scout_triages_new_items(paths):
+    d = deps(paths, OK_ADAPTERS)
+    d.resolver = fake_resolver(ScriptedLlm(replies=[echo_triage]))
+    report = await run_scout(d)
+    assert report.triage is not None and report.triage.triaged == 4
+    usage = d.conn.execute("SELECT tokens_in, tokens_out FROM runs WHERE id = ?", (report.run_id,))
+    assert tuple(usage.fetchone()) == (100, 20)
+
+
+async def test_the_scout_without_a_key_still_succeeds(paths):
+    d = deps(paths, OK_ADAPTERS)
+    report = await run_scout(d)
+    assert report.status == "ok"
+    assert report.triage is not None and report.triage.degraded_kind == "not_configured"
+    assert RunsRepo(d.conn).last("scout").error is None  # type: ignore[union-attr]  # not a fault
+
+
+async def test_a_triage_failure_is_recorded_on_the_run(paths):
+    d = deps(paths, OK_ADAPTERS)
+    d.resolver = fake_resolver(ScriptedLlm(replies=[RuntimeError("503 Service Unavailable")]))
+    report = await run_scout(d)
+    assert report.status == "ok"  # the items are stored; only the ranking is degraded
+    assert report.triage is not None and report.triage.degraded_kind == "provider"
+    error = RunsRepo(d.conn).last("scout").error  # type: ignore[union-attr]
+    assert error is not None and error.startswith("triage: provider error: RuntimeError: 503")

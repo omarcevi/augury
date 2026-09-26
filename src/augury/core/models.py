@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, BaseModel, Field, TypeAdapter
@@ -144,3 +144,20 @@ class Content(BaseModel):
     word_count: int = 0
     error: str | None = None
     fetched_at: datetime
+
+
+TRIAGE_FLAGS = ("promo", "thin", "off_topic")
+HIDING_FLAGS = frozenset({"promo", "thin"})  # left out of the Top view (spec §5.4)
+TRIAGE_FAILED = "triage_failed"
+
+
+class TriageResult(BaseModel):
+    item_id: str
+    relevance: int | None = Field(default=None, ge=0, le=10)  # None: triage failed
+    why_read: str = ""
+    tags: list[str] = Field(default_factory=list)
+    flags: list[str] = Field(default_factory=list)  # TRIAGE_FLAGS, or TRIAGE_FAILED
+
+    @classmethod
+    def failed(cls, item_id: str) -> Self:
+        return cls(item_id=item_id, flags=[TRIAGE_FAILED])

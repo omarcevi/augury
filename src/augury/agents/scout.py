@@ -1,4 +1,5 @@
 import logging
+import random
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -6,19 +7,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from google.adk.agents import Context
 from google.adk.workflow import Workflow, node
 from google.genai import types
 from pydantic import BaseModel
 
 from augury.agents.enrich import enrich_new_articles
-from augury.agents.llm_step import run_workflow
+from augury.agents.llm_step import node_caller, run_workflow
 from augury.agents.normalize import store_items
+from augury.agents.triage import TriageStats, triage_new_items
 from augury.core.clock import utcnow
-from augury.core.config import Config
+from augury.core.config import Config, Interests
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.lock import ScoutAlreadyRunning, ScoutLock
 from augury.core.models import FetchResult, Source
+from augury.llm.resolver import Resolver, default_resolver
 from augury.sources.base import Adapter
 from augury.sources.http import HttpClient
 from augury.sources.registry import ADAPTERS
@@ -41,6 +45,16 @@ class ScoutReport(BaseModel):
     new_items: int
     enriched: int = 0
     enrich_error: str | None = None
+    triage: TriageStats | None = None  # M2
+
+    def problems(self) -> list[str]:
+        """Everything that went wrong, for runs.error (spec §11: nothing fails silently)."""
+        found = [f"{sid}: {s.error}" for sid, s in self.sources.items() if s.error]
+        if self.enrich_error:
+            found.append(f"enrich: {self.enrich_error}")
+        if self.triage is not None and self.triage.degraded_kind in ("budget", "provider"):
+            found.append(f"triage: {self.triage.degraded}")
+        return found
 
 
 @dataclass
@@ -53,6 +67,9 @@ class ScoutDeps:
     now: Callable[[], datetime] = utcnow
     # Called on the event loop as soon as items are stored, before the slower enrichment.
     on_stored: Callable[[ScoutReport], None] | None = None
+    interests: Interests = field(default_factory=Interests)  # M2
+    resolver: Resolver | None = None  # M2; None resolves from config and the environment
+    rng: random.Random = field(default_factory=random.Random)  # M2; tests pin the shuffle
 
 
 @dataclass
@@ -68,6 +85,18 @@ def build_scout_workflow(
     by_id = {s.id: s for s in sources}
     outcomes: dict[str, _Outcome] = {}
     sources_repo = SourcesRepo(deps.conn)
+    resolver = deps.resolver or default_resolver(deps.config)
+
+    def announce(report: ScoutReport) -> None:
+        """Tell the caller (the TUI) there is something new to show. Store calls it, and so
+        does any later step that changes the list (ranking), so it never waits for the rest."""
+        if deps.on_stored is None:
+            return
+        try:
+            deps.on_stored(report)
+        except Exception:  # a TUI refresh failing (e.g. a torn-down widget) must
+            # never fail the scout itself (P5.1) -- the items are already stored.
+            _log.exception("on_stored callback failed")
 
     def plan_sources(node_input: types.Content) -> list[str]:
         return list(by_id)
@@ -111,12 +140,7 @@ def build_scout_workflow(
             new_items=sum(s.new for s in stats.values()),
         )
         sink.append(report)
-        if deps.on_stored is not None:
-            try:
-                deps.on_stored(report)
-            except Exception:  # a TUI refresh failing (e.g. a torn-down widget) must
-                # never fail the scout itself (P5.1) -- the items are already stored.
-                _log.exception("on_stored callback failed")
+        announce(report)
         return report
 
     async def enrich(node_input: ScoutReport) -> ScoutReport:
@@ -132,6 +156,29 @@ def build_scout_workflow(
         sink.append(report)
         return report
 
+    # M2: the triage LlmAgent runs as a child node of this one (ctx.run_node needs
+    # rerun_on_resume=True). Batching, repair and bisection are code, in agents/triage.py.
+    @node(rerun_on_resume=True)
+    async def triage(ctx: Context, node_input: ScoutReport) -> ScoutReport:
+        try:
+            stats = await triage_new_items(
+                deps.conn,
+                config=deps.config,
+                interests=deps.interests,
+                resolver=resolver,
+                run_id=run_id,
+                now=deps.now,
+                rng=deps.rng,
+                make_call=lambda agent: node_caller(ctx, agent),
+            )
+        except Exception as exc:  # best effort: the digest is then ranked without relevance
+            stats = TriageStats(
+                degraded=f"triage crashed: {type(exc).__name__}: {exc}", degraded_kind="provider"
+            )
+        report = node_input.model_copy(update={"triage": stats})
+        sink.append(report)
+        return report
+
     return Workflow(
         name="scout",
         edges=[
@@ -139,6 +186,7 @@ def build_scout_workflow(
             (plan_sources, fetch_source),
             (fetch_source, store),
             (store, enrich),
+            (enrich, triage),
         ],
     )
 
@@ -170,14 +218,11 @@ async def run_scout(deps: ScoutDeps, *, only: str | None = None) -> ScoutReport:
             runs.finish(run_id, "failed", now=deps.now(), error="the workflow produced no report")
             raise RuntimeError("scout workflow finished without a report")
         report = sink[-1]
-        errors = [f"{sid}: {s.error}" for sid, s in report.sources.items() if s.error]
-        if report.enrich_error:
-            errors.append(f"enrich: {report.enrich_error}")
         runs.finish(
             run_id,
             report.status,
             now=deps.now(),
-            error="; ".join(errors) or None,
+            error="; ".join(report.problems()) or None,
             stats=report.model_dump(),
         )
         return report

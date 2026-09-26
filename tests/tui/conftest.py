@@ -113,7 +113,7 @@ def make_app(paths):
         editor_runner: Callable[[list[str]], object] | None = None,
         resolver: Resolver | None = None,
     ) -> AuguryApp:
-        extra = {"editor_runner": editor_runner} if editor_runner is not None else {}
+        extra: dict[str, Any] = {"editor_runner": editor_runner} if editor_runner else {}
         app = AuguryApp(
             conn=open_db(paths, now=now),
             config=config or QUIET,

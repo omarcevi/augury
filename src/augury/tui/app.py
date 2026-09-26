@@ -22,7 +22,14 @@ from textual.widgets import ContentSwitcher, DataTable, Input, Static
 
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.core.clock import local_day, utcnow
-from augury.core.config import Config, ConfigError, HttpConfig, load_config, load_raw_toml
+from augury.core.config import (
+    Config,
+    ConfigError,
+    HttpConfig,
+    Interests,
+    load_config,
+    load_raw_toml,
+)
 from augury.core.db.contents_repo import ContentsRepo
 from augury.core.db.items_repo import ItemsRepo
 from augury.core.db.runs_repo import RunsRepo
@@ -145,6 +152,7 @@ class AuguryApp(App[None]):
         reader_debounce: Callable[[], Awaitable[None]] | None = None,
         editor_runner: EditorRunner = run_editor_subprocess,
         resolver: Resolver | None = None,
+        interests: Interests | None = None,
     ) -> None:
         super().__init__()
         self.conn, self.config, self.paths, self.now = conn, config, paths, now
@@ -164,6 +172,7 @@ class AuguryApp(App[None]):
         self._items_count: tuple[int, int] | None = None  # (listed, total) for the Items title
         self.scouting = False
         self.resolver: Resolver = resolver or default_resolver(config)
+        self.interests = interests or Interests()  # M2: triage judges items against these
         # Config and keys don't change while the app runs, so this is computed once.
         self.ai: tuple[RoleStatus, ...] = role_statuses(config, self.resolver)
 
@@ -239,6 +248,8 @@ class AuguryApp(App[None]):
             lock_path=self.paths.scout_lock_file,
             now=self.now,
             on_stored=self._on_scout_stored,
+            resolver=self.resolver,
+            interests=self.interests,
         )
         try:
             report = await run_scout(deps)
