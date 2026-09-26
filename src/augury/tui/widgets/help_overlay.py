@@ -7,7 +7,7 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from augury.tui.keymap import KEYMAP
+from augury.tui.keymap import HELP_ONLY, KEYMAP
 from augury.tui.widgets.status_line import essentials_first
 
 
@@ -28,7 +28,7 @@ class HelpOverlay(ModalScreen[None]):
         body = Text()
         for mode in sorted(KEYMAP, key=lambda m: m != self.mode):  # the current mode first
             body.append(f"{mode}\n", style="bold")
-            for hint in essentials_first(KEYMAP[mode]):
+            for hint in essentials_first(KEYMAP[mode] + HELP_ONLY.get(mode, ())):
                 body.append(f"  {hint.key:<10} {hint.label}\n")
         body.rstrip()
         with VerticalScroll(id="help-body") as scroll:

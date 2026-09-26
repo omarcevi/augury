@@ -35,6 +35,9 @@ PickerModal, ChoiceModal { align: center middle; }
 #reader { width: 45%; border: round $primary; padding: 0 1; }
 #reader-header { height: auto; }
 #reader-status { height: auto; }
+/* F28: up to half the reader; a longer TL;DR scrolls inside the box (the scrollbar says so). */
+#reader-tldr-box { display: none; height: auto; max-height: 50%; overflow-y: auto; scrollbar-size-vertical: 1; border: round $accent; border-title-color: $accent; padding: 0 1; }
+#reader-tldr { height: auto; }
 #reader-doc { height: 1fr; }
 /* P10: the text column is capped at [tui] reading_width (ReaderPane.set_reading_width); centre it. */
 #reader-doc { align-horizontal: center; }

@@ -70,6 +70,12 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
     ),
 }
 
+# Keys the help screen lists but the hints row leaves out: the row is full, and T only matters
+# after a TL;DR failed, when the reader's own message names it.
+HELP_ONLY: dict[str, tuple[KeyHint, ...]] = {
+    "READ": (KeyHint("T", "retry TL;DR"),),
+}
+
 THEMES = (
     "textual-dark",
     "dracula",

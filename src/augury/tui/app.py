@@ -20,7 +20,9 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import ContentSwitcher, DataTable, Input, Static
 
+from augury.agents.llm_step import describe
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
+from augury.agents.summarize import Summarizer
 from augury.core.clock import local_day, utcnow
 from augury.core.config import (
     Config,
@@ -35,6 +37,7 @@ from augury.core.db.items_repo import ItemsRepo
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.db.state_repo import StateRepo, Toggle
+from augury.core.db.summaries_repo import Summary
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import AppPaths
 from augury.core.text import strip_control_chars
@@ -101,6 +104,7 @@ _ITEMS_ONLY_ACTIONS = frozenset(
         "cycle_show",
         "focus_search",
         "toggle_triage_hidden",
+        "retry_tldr",
     }
 )
 # The mirror image: an action that only makes sense on the Config view (P3), disabled
@@ -188,6 +192,8 @@ class AuguryApp(App[None]):
         self.scouting = False
         self.resolver: Resolver = resolver or default_resolver(config)
         self.interests = interests or Interests()  # M2: triage judges items against these
+        self.summarizer = Summarizer(conn, config, self.resolver, now=now)  # F28: TL;DRs
+        self._summarizing: str | None = None  # the item whose TL;DR is being made
         # Config and keys don't change while the app runs, so this is computed once.
         self.ai: tuple[RoleStatus, ...] = apply_probes(
             role_statuses(config, self.resolver), load_probe_results(paths.probe_cache_file)
@@ -490,7 +496,9 @@ class AuguryApp(App[None]):
         status = self.query_one(StatusLine)
         status.selection = text(status_selection(row), one_line=True) if row else text("")
         if row and self.reading_id is None and (item := ItemsRepo(self.conn).get(row.id)):
-            self.query_one(ReaderPane).preview(item, row)
+            reader = self.query_one(ReaderPane)
+            reader.preview(item, row)
+            reader.show_tldr(self.summarizer.cached(row.id))  # cached only: moving never calls
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id != "items":
@@ -510,6 +518,11 @@ class AuguryApp(App[None]):
         # MarkdownViewer itself can't take focus; its document can, so the reader keys work.
         viewer.document.focus()
         self.load_content(item_id, restored=restored)
+        # The cached TL;DR (or none) at once; a new one comes only after the body (load_summary).
+        if (cached := self.summarizer.cached(item_id)) is None and self._summarizing == item_id:
+            self.query_one(ReaderPane).show_tldr(None, "Summarizing…")  # still on its way
+        else:
+            self.query_one(ReaderPane).show_tldr(cached)
 
     @work(exclusive=True, group="reader")
     async def load_content(self, item_id: str, *, restored: bool = False) -> None:
@@ -562,12 +575,77 @@ class AuguryApp(App[None]):
             await reader.show_markdown(content.body_md)
             if self.is_running:
                 self._reanchor()  # back to the saved position once the body is laid out
+                # F28: a TL;DR on Enter only. P2's reopen at launch isn't one, so it shows a
+                # cached TL;DR (open_item) and never calls the model (spec §8.3.1).
+                if not restored and self._summarizing != item_id:
+                    self.load_summary(item_id)
         else:
             reader.show_status(
                 f"Couldn't extract this item ({content.error or content.status}). "
                 "Press o to open it in your browser.",
                 self.get_css_variables().get("warning", ""),
             )
+
+    @work(exclusive=True, group="summary")
+    async def load_summary(self, item_id: str) -> None:
+        """Only after Enter (via load_content) or T, never on cursor movement (spec §8.3.1).
+        Opening another item starts its own, which cancels this one: `summarize` then closes
+        its run as interrupted."""
+        # No key: TL;DRs are simply absent. Return before touching any widget: this worker can
+        # start while the app is shutting down, when the reader's widgets are already gone.
+        if not self.is_running or not self.summarizer.available or self.reading_id != item_id:
+            return
+        item = ItemsRepo(self.conn).get(item_id)
+        content = ContentsRepo(self.conn).get(item_id)
+        if item is None or content is None or content.status != "ok":
+            return
+        if (cached := self.summarizer.cached(item_id)) is not None:
+            self._show_tldr(cached)
+            return
+        if (problem := self.summarizer.budget_problem()) is not None:
+            self._show_tldr(None, f"No TL;DR today: {problem}.")
+            return
+        self._show_tldr(None, "Summarizing…")
+        self._summarizing = item_id
+        try:
+            summary = await self.summarizer.summarize(item, content)
+        except Exception as exc:  # the article stays readable; say why, and how to retry
+            if not self.is_running:  # after every await: quitting tears the widgets down
+                return
+            self.log.error(f"reader: TL;DR for {item_id} failed\n{traceback.format_exc()}")
+            if self.reading_id == item_id:
+                why = " ".join(describe(exc, 120).split())  # a provider's error can be many lines
+                self._show_tldr(None, f"TL;DR failed ({why}). Press T to retry.")
+            elif self._tldr_on_screen(item_id):  # closed meanwhile: T no longer reaches it
+                self._show_tldr(None)
+        else:
+            if not self.is_running:
+                return
+            if self.reading_id == item_id or self._tldr_on_screen(item_id):
+                self._show_tldr(summary)
+        finally:
+            if self._summarizing == item_id:
+                self._summarizing = None
+        self.refresh_health()  # today's spend changed
+
+    def _tldr_on_screen(self, item_id: str) -> bool:
+        """Esc leaves the article on screen (beside the list) until the cursor moves."""
+        if self.reading_id is not None:
+            return False
+        row = self.query_one(ItemsTable).current_row()
+        return row is not None and row.id == item_id
+
+    def _show_tldr(self, summary: Summary | None, message: str = "") -> None:
+        self.query_one(ReaderPane).show_tldr(summary, message)
+        self._reanchor()  # the box's height changed the article's, so keep the reading position
+
+    def action_retry_tldr(self) -> None:
+        if self.reading_id is None:
+            return
+        if not self.summarizer.available:
+            self.notify("No TL;DR: AI is not configured.", markup=False, timeout=3)
+        elif self._summarizing != self.reading_id:  # T while it's on its way changes nothing
+            self.load_summary(self.reading_id)
 
     def _refresh_row(self, item_id: str) -> None:
         if (row := get_item_row(self.conn, item_id, now=self.now())) is not None:

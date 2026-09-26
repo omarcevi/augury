@@ -1,11 +1,12 @@
 from contextlib import suppress
 from typing import ClassVar
 
+from rich.text import Text
 from textual._context import NoActiveAppError
 from textual.app import ComposeResult
 from textual.await_complete import AwaitComplete
 from textual.binding import Binding, BindingType
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.layout import Layout
 from textual.layouts.grid import GridLayout
@@ -13,6 +14,7 @@ from textual.widgets import Markdown, MarkdownViewer, Static
 from textual.widgets._markdown import MarkdownTable, MarkdownTableContent
 from textual.widgets.markdown import MarkdownFence
 
+from augury.core.db.summaries_repo import Summary
 from augury.core.models import Item
 from augury.core.text import strip_control_chars
 from augury.tui.clipboard import copy_and_tell
@@ -119,6 +121,7 @@ class ReaderPane(Vertical):
         Binding("left_square_bracket", "prev_section", "prev section"),
         Binding("right_square_bracket", "next_section", "next section"),
         Binding("z", "app.toggle_zen", "zen"),
+        Binding("T", "app.retry_tldr", "retry TL;DR", show=False),  # F28; `t` is the theme
         Binding("n", "app.next_item", "next"),
         Binding("p", "app.prev_item", "prev"),
         Binding("escape", "app.back_to_table", "back"),
@@ -128,10 +131,20 @@ class ReaderPane(Vertical):
         super().__init__(id=id)
         self.status_message = ""
         self.preview_text = ""
+        self.tldr_text = ""  # what the TL;DR box shows, as plain text ("" while it's hidden)
 
     def compose(self) -> ComposeResult:
         yield Static(id="reader-header")
         yield Static(id="reader-status")
+        # A Static can't scroll, so the box around it does: a long TL;DR and its takeaways stay
+        # reachable (the wheel, or shift+tab from the article and the arrow keys) at up to half
+        # the reader's height. It sits outside the article's scroll: reading progress, the
+        # contents and [ ] don't see it (AuguryApp re-anchors when its height changes).
+        with VerticalScroll(id="reader-tldr-box") as box:
+            box.border_title = "TL;DR"
+            tldr = Static(id="reader-tldr")
+            tldr.display = False
+            yield tldr
         yield SafeMarkdownViewer("", show_table_of_contents=False, id="reader-doc")
 
     @property
@@ -170,6 +183,32 @@ class ReaderPane(Vertical):
     def show_status(self, message: str, style: str = "") -> None:
         self.status_message = message
         self.query_one("#reader-status", Static).update(text(message, style))
+
+    def show_tldr(self, summary: Summary | None, message: str = "") -> None:
+        """A TL;DR, a one-line status, or nothing at all (the box hides). The bullets come from
+        the model, so they go through `text()`: shown literally, never parsed as markup."""
+        box = self.query_one("#reader-tldr-box", VerticalScroll)
+        tldr = self.query_one("#reader-tldr", Static)
+        if summary is None and not message:
+            self.tldr_text = ""
+            if box.has_focus:  # a hidden box would keep the reader's keys
+                self.viewer.document.focus()
+            box.display = tldr.display = False
+            return
+        body = Text()
+        if summary is None:
+            body.append_text(text(message, "dim"))
+        else:
+            for bullet in summary.tldr:
+                body.append_text(text(f"• {bullet}\n"))
+            body.append("Takeaways\n", style="bold")
+            for point in summary.takeaways:
+                body.append_text(text(f"· {point}\n", "dim"))
+            body.rstrip()
+        self.tldr_text = body.plain
+        tldr.update(body)
+        box.display = tldr.display = True
+        box.scroll_home(animate=False, immediate=True)  # each TL;DR from its first bullet
 
     def show_markdown(self, md: str) -> AwaitComplete:
         # Untrusted page text: Textual passes ESC through, so escape sequences go here.
