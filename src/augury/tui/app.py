@@ -21,14 +21,17 @@ from textual.widgets import ContentSwitcher, DataTable, Input, Static
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.core.clock import local_day, utcnow
 from augury.core.config import Config, ConfigError, HttpConfig, load_config, load_raw_toml
+from augury.core.db.contents_repo import ContentsRepo
 from augury.core.db.items_repo import ItemsRepo
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.db.state_repo import StateRepo, Toggle
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import AppPaths
+from augury.core.text import strip_control_chars
 from augury.extract.service import get_or_extract
 from augury.sources.http import HttpClient, PoliteClient
+from augury.tui.clipboard import copy_and_tell, copy_selection
 from augury.tui.health import load_health
 from augury.tui.keymap import THEMES
 from augury.tui.layout import HIDDEN_COLUMNS, layout_for
@@ -75,6 +78,7 @@ _ITEMS_ONLY_ACTIONS = frozenset(
         "toggle_save",
         "toggle_hide",
         "open_browser",
+        "copy_article",
         "pick_sources",
         "pick_kinds",
         "pick_date",
@@ -167,6 +171,7 @@ class AuguryApp(App[None]):
         viewer = self.query_one(ReaderPane).viewer
         self.watch(viewer, "scroll_y", self._on_reader_scroll, init=False)
         self.watch(viewer, "virtual_size", self._on_reader_relayout, init=False)
+        self.query_one(ReaderPane).set_reading_width(self.config.tui.reading_width)
         self.apply_layout(self.size.width)
         self.begin_session()
         self.refresh_health()
@@ -639,6 +644,17 @@ class AuguryApp(App[None]):
 
     def action_toggle_zen(self) -> None:
         self.screen.toggle_class("zen")
+
+    def action_copy_article(self) -> None:
+        content = ContentsRepo(self.conn).get(self.reading_id) if self.reading_id else None
+        if content is None or content.status != "ok":
+            self.notify("No article text to copy yet", markup=False, timeout=2)
+            return
+        copy_and_tell(self, strip_control_chars(content.body_md), "article")
+
+    def on_text_selected(self, _event: events.TextSelected) -> None:
+        if self.config.tui.copy_on_select:
+            copy_selection(self)  # each selection once; a plain click has cleared it anyway
 
     def _step(self, delta: int) -> None:
         table = self.query_one(ItemsTable)

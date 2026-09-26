@@ -1,3 +1,4 @@
+from rich.cells import cell_len
 from rich.text import Text
 from textual.reactive import reactive
 from textual.widget import Widget
@@ -39,5 +40,11 @@ class StatusLine(Widget):
         # Essentials come right after the mode badge so a narrow terminal truncates the
         # (less critical) rest of the hints first, never help/quit.
         for hint in essentials_first(KEYMAP.get(self.mode, ())):
-            row.append(f"  {hint.key}:{hint.label}")
+            piece = f"  {hint.key}:{hint.label}"
+            # Whole hints only: one that doesn't fit is left out rather than cut to "y:co…"
+            # (and so are the rest, which matter less). The essentials always stay.
+            too_wide = self.size.width and row.cell_len + cell_len(piece) > self.size.width
+            if too_wide and hint.label not in _ESSENTIAL_LABELS:
+                break
+            row.append(piece)
         return row

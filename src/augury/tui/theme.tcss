@@ -20,6 +20,8 @@ PickerModal, ChoiceModal { align: center middle; }
 #reader-header { height: auto; }
 #reader-status { height: auto; }
 #reader-doc { height: 1fr; }
+/* P10: the text column is capped at [tui] reading_width (ReaderPane.set_reading_width); centre it. */
+#reader-doc { align-horizontal: center; }
 /* The contents tree is width: auto; long paper headings would squeeze the text to nothing. */
 #reader-doc > MarkdownTableOfContents { max-width: 40%; }
 Screen.layout-narrow #reader { display: none; }

@@ -1,6 +1,8 @@
 import asyncio
 import re
+import subprocess
 import time
+import types
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +14,7 @@ from textual.pilot import Pilot
 
 from augury.core.config import Config, ScoutConfig
 from augury.core.db.open import open_db
+from augury.tui import clipboard
 from augury.tui.app import AuguryApp
 from tests.helpers import NullHttp
 
@@ -33,6 +36,20 @@ def utc_timezone(monkeypatch):
     yield
     monkeypatch.undo()
     time.tzset()
+
+
+@pytest.fixture(autouse=True)
+def no_real_clipboard(monkeypatch):
+    """No TUI test ever reaches the real clipboard: the clipboard module gets its own stubbed
+    `subprocess` (the global one stays real for everything else), and OSC 52 only records
+    the text in `app.clipboard`. Tests that inspect a copy patch these further."""
+    stub = types.ModuleType("subprocess")
+    stub.__dict__.update(vars(subprocess))
+    stub.__dict__["run"] = lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0)
+    monkeypatch.setattr(clipboard, "subprocess", stub)
+    monkeypatch.setattr(
+        App, "copy_to_clipboard", lambda self, text: setattr(self, "_clipboard", text)
+    )
 
 
 async def instant() -> None:

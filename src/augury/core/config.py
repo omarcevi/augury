@@ -42,6 +42,10 @@ class TuiConfig(_Section):
     remember_state: bool = True
     # With remember_state, also reopen the article that was open at exit, where you left it.
     reopen_last_article: bool = False
+    # Finishing a mouse selection copies it (OSC 52, plus pbcopy/wl-copy/xclip when local).
+    copy_on_select: bool = True
+    # The reader's text column in cells (zen mode centres it; the rest becomes margins).
+    reading_width: int = Field(default=88, ge=40, le=200)
 
 
 class Config(_Section):

@@ -1,8 +1,10 @@
 from collections.abc import Mapping
 from datetime import datetime, timedelta
+from typing import ClassVar
 
 from rich.text import Text
 from textual import events
+from textual.binding import Binding, BindingType
 from textual.widgets import DataTable
 
 from augury.tui.query import ItemRow, is_new
@@ -34,6 +36,14 @@ def humanize_age(delta: timedelta) -> str:
 
 
 class ItemsTable(DataTable[Text]):
+    # Vim/k9s-style jumps on top of DataTable's own keys (arrows, PageUp/PageDown, Home/End).
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("g", "scroll_top", "top", show=False),
+        Binding("G", "scroll_bottom", "bottom", show=False),
+        Binding("ctrl+d", "half_page(1)", "half page down", show=False),
+        Binding("ctrl+u", "half_page(-1)", "half page up", show=False),
+    ]
+
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(cursor_type="row", id=id)
         self.rows_by_key: dict[str, ItemRow] = {}
@@ -109,6 +119,27 @@ class ItemsTable(DataTable[Text]):
         keys = [key for key, _, _ in COLUMNS if key not in self.hidden_columns]
         for key, cell in zip(keys, self._cells(row, now, palette), strict=True):
             self.update_cell(row.id, key, cell)
+
+    def _on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self._stop_if_no_row(event)
+
+    def _on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self._stop_if_no_row(event)
+
+    @staticmethod
+    def _stop_if_no_row(event: DataTable.RowHighlighted | DataTable.RowSelected) -> None:
+        # An empty table (first launch, a search with no hits, Show: Saved with nothing saved)
+        # still reports its cursor row on g/G, arrows, page keys and Enter -- with no row key.
+        # Nothing above should have to handle that, so it goes no further.
+        if event.row_key is None:  # typed as a RowKey, but None here
+            event.stop()
+
+    def action_half_page(self, direction: int) -> None:
+        visible = self.scrollable_content_region.height - (
+            self.header_height if self.show_header else 0
+        )
+        target = self.cursor_row + direction * max(1, visible // 2)
+        self.move_cursor(row=max(0, min(target, self.row_count - 1)))
 
     def current_row(self) -> ItemRow | None:
         if not self.rows_by_key or self.cursor_row < 0:
