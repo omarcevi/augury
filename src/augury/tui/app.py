@@ -108,9 +108,10 @@ _ITEMS_ONLY_ACTIONS = frozenset(
         "toggle_tldr",
     }
 )
-# The mirror image: an action that only makes sense on the Config view (P3), disabled
-# everywhere else so its key (`e`) is harmless if a widget there doesn't shadow it.
-_CONFIG_ONLY_ACTIONS = frozenset({"edit_config"})
+# The mirror image: actions that only make sense on the Config view (P3, P14), disabled
+# everywhere else so their keys (`e`, enter/space/backspace on a setting, `y`) are harmless if a
+# widget there doesn't shadow them.
+_CONFIG_ONLY_ACTIONS = frozenset({"edit_config", "edit_setting", "reset_setting", "copy_config"})
 # The screen's classes that theme.tcss keys layout rules on (`Screen.zen #reader`, ...), and what
 # those rules style besides the screen itself. A class change on the screen restyles every widget
 # under it: ~0.7 s per z or esc with a long paper (~1,900 widgets). _set_screen_classes restyles
@@ -182,6 +183,8 @@ class AuguryApp(App[None]):
         self._search_timer: Timer | None = None
         self.http_factory = http_factory
         self.http: HttpClient | None = None
+        self._http_stale = False  # P14: [http] changed on the config page since it was built
+        self._retired_http: list[HttpClient] = []  # clients replaced since; closed at quit
         self.reading_id: str | None = None
         self._saved_progress = 0.0
         # The reading position as a fraction, and the max_scroll_y it was taken at (-1 while a
@@ -265,6 +268,8 @@ class AuguryApp(App[None]):
     async def start_scout(self) -> None:
         if self.http is None:
             return
+        if self._http_stale:
+            self._renew_http()
         self.scouting = True
         self.refresh_after_scout()
         deps = ScoutDeps(
@@ -395,9 +400,20 @@ class AuguryApp(App[None]):
         self.query_one("#items-pane").border_title = text(title)  # a str would be markup
 
     async def on_unmount(self) -> None:
-        close = getattr(self.http, "aclose", None)
-        if close is not None:
-            await close()
+        for client in (*self._retired_http, self.http):
+            close = getattr(client, "aclose", None)
+            if close is not None:
+                await close()
+
+    def _renew_http(self) -> None:
+        """P14: [http] changed on the config page, so the scout starting now gets a client built
+        from it (the reader too, from then on). The old one may still be fetching an article:
+        it's closed at quit, not now."""
+        self._http_stale = False
+        old, self.http = self.http, self.http_factory(self.config.http)
+        self.http.on_wait = self.on_http_wait
+        if old is not None and old is not self.http:
+            self._retired_http.append(old)
 
     def exit(
         self, result: None = None, return_code: int = 0, message: RenderableType | None = None
@@ -791,7 +807,7 @@ class AuguryApp(App[None]):
     def action_show_config(self) -> None:
         self.query_one(ContentSwitcher).current = "config-view"
         self.refresh_config()
-        self.query_one(ConfigView).focus()
+        self.query_one(ConfigView).table.focus()
         self.mode = "CONFIG"
         self.refresh_bindings()
 
@@ -808,6 +824,37 @@ class AuguryApp(App[None]):
             running_theme=self.theme,  # `e` may have changed config.toml's since launch
         )
         self.query_one(ConfigView).show(report)
+
+    def action_edit_setting(self) -> None:
+        self.query_one(ConfigView).edit_selected()
+
+    def action_reset_setting(self) -> None:
+        self.query_one(ConfigView).reset_selected()
+
+    def action_copy_config(self) -> None:
+        copy_and_tell(self, self.query_one(ConfigView).text_content, "config report")
+
+    def adopt_config(self, config: Config, section: str, field: str) -> None:
+        """P14: `section.field` was just saved on the config page and `config` is what the file
+        now loads as. What the running app reads live takes it at once (the theme, the reader's
+        width and TL;DR box, copy-on-select) and the next scout reads it when it starts. The
+        resolver and the reader's Summarizer keep what they were built with, so [models],
+        [google], [budget] and [summarizer] are only all in effect from the next launch."""
+        previous, self.config = self.config, config
+        if config.http != previous.http:
+            self._http_stale = True
+        if section == "tui" and field == "theme":
+            # config.toml wins from now on: the theme picked with t (ui_state.json) is dropped.
+            self.theme = effective_theme(None, config.tui.theme, self.available_themes)
+            if self.session is not None:
+                self.session.update(theme=None)
+        elif section == "tui" and field == "reading_width":
+            self.query_one(ReaderPane).set_reading_width(config.tui.reading_width)
+        elif section == "tui" and field == "tldr":
+            self._collapse_tldr(config.tui.tldr == "collapsed")
+            if self.session is not None:  # as for the theme, config.toml's wins over h's
+                self.session.update(tldr_collapsed=None)
+        self.refresh_config()
 
     def action_edit_config(self) -> None:
         path = self.paths.config_file

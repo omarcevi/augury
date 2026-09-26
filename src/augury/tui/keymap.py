@@ -60,10 +60,14 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
         KeyHint("?", "help"),
         KeyHint("q", "quit"),
     ),
+    # P14: at 80 columns the row fits the essentials, enter, ⌫ and e (see HELP_ONLY for the rest).
     "CONFIG": (
+        KeyHint("enter", "edit"),
+        KeyHint("⌫", "reset"),
+        KeyHint("e", "edit file"),
+        KeyHint("y", "copy"),
         KeyHint("1", "items"),
         KeyHint("2", "sources"),
-        KeyHint("e", "edit config"),
         KeyHint("esc", "back"),
         KeyHint("?", "help"),
         KeyHint("q", "quit"),
@@ -75,6 +79,13 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
 # names it; a collapsed TL;DR box names h itself.
 HELP_ONLY: dict[str, tuple[KeyHint, ...]] = {
     "READ": (KeyHint("h", "hide/show TL;DR"), KeyHint("T", "retry TL;DR")),
+    "CONFIG": (
+        KeyHint("space", "flip on/off (or edit)"),
+        KeyHint("del", "reset to default"),
+        KeyHint("Y", "copy"),
+        KeyHint("j/k", "move"),
+        KeyHint("g/G", "top/bottom"),
+    ),
 }
 
 THEMES = (

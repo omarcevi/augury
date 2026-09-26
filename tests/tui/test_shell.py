@@ -119,6 +119,14 @@ async def test_help_fits_80x24_and_scrolls_to_every_mode(make_app):
         await pilot.press("end")
         await pilot.pause()
         shown = visible_help(app)
+        assert any("CONFIG" in line for line in shown)  # the last mode (P14 made it longer)
+        assert any(line.split() == ["enter", "edit"] for line in shown)
+        for _ in range(30):  # back up to the one before it
+            if any("SOURCES" in line for line in visible_help(app)):
+                break
+            await pilot.press("k")
+            await pilot.pause()
+        shown = visible_help(app)
         assert any("SOURCES" in line for line in shown)
         assert any(line.split() == ["t", "test", "fetch"] for line in shown)
 

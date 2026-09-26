@@ -15,13 +15,15 @@ def shown_hints(row: str, mode: str) -> list[str]:
 
 
 @pytest.mark.parametrize("width", [80, 90, 130, 180])
-@pytest.mark.parametrize("mode", ["NORMAL", "READ"])
+@pytest.mark.parametrize("mode", ["NORMAL", "READ", "CONFIG"])
 async def test_the_hints_row_never_ends_in_half_a_hint(make_app, mode, width):
     app = make_app()
     cache(app, seed(app)[0])
     async with app.run_test(size=(width, 40)) as pilot:
         if mode == "READ":
             await open_first(pilot)
+        elif mode == "CONFIG":
+            await pilot.press("3")
         await pilot.pause()
         status = app.query_one(StatusLine)
         row = status.render_line(1).text
@@ -41,3 +43,12 @@ async def test_a_wider_terminal_shows_more_hints(make_app):
         await pilot.pause()
         wide = shown_hints(app.query_one(StatusLine).render_line(1).text, "NORMAL")
         assert len(wide) > len(narrow) and wide[: len(narrow)] == narrow
+
+
+async def test_the_config_rows_edit_keys_fit_at_80_columns(make_app):
+    app = make_app()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press("3")
+        await pilot.pause()
+        shown = shown_hints(app.query_one(StatusLine).render_line(1).text, "CONFIG")
+        assert {"enter:edit", "⌫:reset", "e:edit file"} <= set(shown)

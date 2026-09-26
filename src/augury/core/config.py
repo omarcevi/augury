@@ -168,6 +168,15 @@ def _describe(path: Path, err: ValidationError) -> str:
     return "\n".join(lines)
 
 
+def validate_config(data: Any, path: Path) -> Config:
+    """config.toml's parsed contents as a Config, or a ConfigError naming each problem. The
+    config page (P14) runs an edit through this too, before it writes anything."""
+    try:
+        return Config.model_validate(data)
+    except ValidationError as e:
+        raise ConfigError(_describe(path, e)) from e
+
+
 def load_config(paths: AppPaths) -> Config:
     path = paths.config_file
     if not path.exists():
@@ -176,10 +185,7 @@ def load_config(paths: AppPaths) -> Config:
         data: Any = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path} is not valid TOML: {e}") from e
-    try:
-        return Config.model_validate(data)
-    except ValidationError as e:
-        raise ConfigError(_describe(path, e)) from e
+    return validate_config(data, path)
 
 
 def load_raw_toml(paths: AppPaths) -> dict[str, Any]:

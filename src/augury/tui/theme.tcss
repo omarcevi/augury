@@ -59,3 +59,11 @@ Screen.zen #reader { width: 100%; }
 ConfirmModal { align: center middle; }
 #confirm-body { width: 60; height: auto; border: round $warning; background: $surface; padding: 1 2; }
 #config-view { height: 1fr; border: round $primary; padding: 0 1; }
+/* P14: the settings table is part of the page's one scroll (ConfigView keeps its cursor in view),
+   so it's as tall as its rows: a DataTable otherwise stops at its container's height. */
+#settings { height: auto; max-height: 1000; }
+#config-text { margin-top: 1; }
+InputModal { align: center middle; }
+#input-box { width: 64; height: auto; border: round $accent; border-title-color: $accent; border-subtitle-color: $text-muted; background: $surface; padding: 0 1; }
+#input-hint { color: $text-muted; }
+#input-error { color: $error; }

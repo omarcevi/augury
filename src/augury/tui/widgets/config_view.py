@@ -1,6 +1,5 @@
 import os
 import platform
-import re
 import shlex
 import sqlite3
 import subprocess
@@ -12,20 +11,38 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import textual
 from pydantic import BaseModel
+from rich.cells import cell_len
+from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import VerticalScroll
+from textual.geometry import Region
 from textual.theme import BUILTIN_THEMES
-from textual.widgets import Static
+from textual.widget import Widget
+from textual.widgets import DataTable, Static
 
 from augury import __version__ as augury_version
 from augury import schedule as scheduling
-from augury.core.config import Config
+from augury.core.config import Config, ConfigError
+from augury.core.config_edit import (
+    SECRET_FIELD,
+    bounds,
+    check_value,
+    choices,
+    default_of,
+    editor_kind,
+    ensure_editable,
+    reset_value,
+    set_value,
+)
 from augury.core.db.connect import vec_version
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.paths import AppPaths
 from augury.tui.safe_text import text
 from augury.tui.ui_state import resolve_theme
+from augury.tui.widgets.input_modal import InputModal
+from augury.tui.widgets.picker_modal import ChoiceModal
 
 if TYPE_CHECKING:
     from augury.tui.app import AuguryApp
@@ -33,9 +50,6 @@ if TYPE_CHECKING:
 SettingSource = Literal["default", "config.toml", "last used, ui_state.json", "running"]
 EditorRunner = Callable[[list[str]], object]
 MASKED_VALUE = "••••••"
-# Config never holds a key (keys live in the environment or .env) -- this is a tripwire in
-# case a future section ever grows one, so it can never be echoed on the config page/CLI.
-_SECRET_FIELD = re.compile(r"(?:^|_)(?:api_key|key|secret|password|token)$")
 
 
 def run_editor_subprocess(cmd: list[str]) -> None:
@@ -101,7 +115,7 @@ def effective_settings(config: BaseModel, raw_toml: Mapping[str, Any]) -> list[S
             continue
         for field_name in type(section).model_fields:
             value = getattr(section, field_name)
-            if _SECRET_FIELD.search(field_name) and value:
+            if SECRET_FIELD.search(field_name) and value:
                 value = MASKED_VALUE
             source: SettingSource = "config.toml" if field_name in raw_section else "default"
             rows.append(SettingRow(section_name, field_name, value, source))
@@ -212,12 +226,20 @@ def build_config_report(
     )
 
 
-def render_config_text(report: ConfigReport) -> str:
+def source_label(row: SettingRow) -> str:
+    return f"{row.source}; {row.note}" if row.note else row.source
+
+
+def _settings_lines(report: ConfigReport) -> list[str]:
     lines = ["Settings"]
     for row in report.settings:
-        source = f"{row.source}; {row.note}" if row.note else row.source
-        lines.append(f"  {row.section}.{row.field} = {row.value}  ({source})")
-    lines += ["", "Paths"]
+        lines.append(f"  {row.section}.{row.field} = {row.value}  ({source_label(row)})")
+    return lines
+
+
+def render_details_text(report: ConfigReport) -> str:
+    """Everything but the settings: the config page shows those as a table (P14)."""
+    lines = ["Paths"]
     lines += [f"  {label}: {value}" for label, value in report.paths]
     lines += ["", "Sources"]
     lines.append(f"  {report.sources_enabled} enabled, {report.sources_disabled} disabled")
@@ -230,28 +252,294 @@ def render_config_text(report: ConfigReport) -> str:
     return "\n".join(lines)
 
 
+def render_config_text(report: ConfigReport) -> str:
+    """The whole report as text: `augury config` prints it, `y` on the config page copies it."""
+    return "\n".join([*_settings_lines(report), "", render_details_text(report)])
+
+
+Applies = Literal["now", "scout", "launch"]
+APPLIES_TEXT: dict[Applies, str] = {
+    "now": "applies now",
+    "scout": "applies from the next scout",
+    "launch": "applies on next launch",
+}
+# What the running app reads again once a save replaces app.config (AuguryApp.adopt_config), by
+# "section.field" or a whole section. Everything else is read once, at launch: the resolver and
+# the budget ([models], [google], [budget]), the reader's Summarizer ([summarizer]), the launch's
+# own auto-scout and restore (auto_after_hours, remember_state, reopen_last_article).
+_APPLIES: dict[str, Applies] = {
+    "tui.theme": "now",  # applied at once
+    "tui.reading_width": "now",  # the reader's text column, at once
+    "tui.copy_on_select": "now",  # read on every selection
+    "tui.tldr": "now",  # the reader's TL;DR box, at once (the scout's prefetch reads it too)
+    "scout.enrich_max_per_run": "scout",  # the scout reads app.config when it starts
+    "scout.prefetch_top_n": "scout",
+    "http": "scout",  # the next scout builds a new client from it
+    "export": "scout",
+    "ranking": "scout",
+}
+
+
+def applies(section: str, field: str) -> Applies:
+    return _APPLIES.get(f"{section}.{field}") or _APPLIES.get(section) or "launch"
+
+
+def _shown(value: object) -> str:
+    return "(blank)" if value == "" else str(value)
+
+
+def input_hint(section: str, field: str) -> str:
+    """The line above an input: what's allowed, and the default."""
+    if (section, field) == ("export", "path"):
+        return "A folder for the Markdown digests (~ is your home). Blank turns the export off."
+    default = default_of(section, field)
+    parts: list[str] = []
+    if section == "models":
+        parts.append("provider/model, e.g. gemini/<model-id>")
+    elif rule := bounds(section, field):
+        parts.append(rule)
+    parts.append(f"default {default}" if default != "" else "default: blank")
+    return " · ".join(parts)
+
+
+class SettingsTable(DataTable[Text]):
+    """Every setting, one row each (P14). Enter or space edits the selected one, backspace or
+    delete resets it to the default. The keys are the app's config-only actions."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("enter", "app.edit_setting", "edit", show=False),  # instead of select_cursor
+        Binding("space", "app.edit_setting", "edit", show=False),
+        Binding("backspace", "app.reset_setting", "reset", show=False),
+        Binding("delete", "app.reset_setting", "reset", show=False),
+        Binding("j", "cursor_down", "down", show=False),
+        Binding("k", "cursor_up", "up", show=False),
+        Binding("g", "scroll_top", "top", show=False),
+        Binding("G", "scroll_bottom", "bottom", show=False),
+    ]
+    COLUMNS: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("setting", "Setting"),
+        ("value", "Value"),
+        ("source", "Source"),
+    )
+
+    def __init__(self, *, id: str | None = None) -> None:
+        super().__init__(cursor_type="row", id=id)
+        self.settings: list[SettingRow] = []
+        self._widths: tuple[int | None, ...] = ()
+
+    def show(self, settings: list[SettingRow]) -> None:
+        """Redraw with these rows; the cursor stays where it was."""
+        self.settings = list(settings)
+        self._draw(self.cursor_row)
+
+    def current(self) -> SettingRow | None:
+        if not self.settings or self.cursor_row < 0:
+            return None
+        return self.settings[min(self.cursor_row, len(self.settings) - 1)]
+
+    def _cells(self, row: SettingRow) -> tuple[str, str, str]:
+        return f"{row.section}.{row.field}", str(row.value), source_label(row)
+
+    def _measure(self) -> tuple[int | None, ...]:
+        """Natural widths when they fit; else the names stay whole, and the value and source
+        share the rest (a longer one ends in …: enter shows a value in full, y copies them)."""
+        cells = [self._cells(row) for row in self.settings]
+        natural = [
+            max([cell_len(label), *(cell_len(c[i]) for c in cells)])
+            for i, (_, label) in enumerate(self.COLUMNS)
+        ]
+        free = self.size.width - 2 * self.cell_padding * len(self.COLUMNS) - 1
+        if not self.size.width or sum(natural) <= free:
+            return (None, None, None)
+        rest = max(24, free - natural[0])
+        value = min(natural[1], max(12, rest - min(natural[2], 24)))
+        return natural[0], value, max(8, rest - value)
+
+    def _draw(self, cursor: int) -> None:
+        self._widths = self._measure()
+        self.clear(columns=True)
+        for (key, label), width in zip(self.COLUMNS, self._widths, strict=True):
+            self.add_column(label, key=key, width=width)
+        for row in self.settings:
+            name, value, source = self._cells(row)
+            style = "dim" if row.source == "default" else ""
+            self.add_row(
+                text(name, one_line=True),
+                text(value, one_line=True),  # literally: a value is never markup
+                text(source, style, one_line=True),
+                key=name,
+            )
+        if self.settings:
+            self.move_cursor(row=min(max(cursor, 0), len(self.settings) - 1))
+
+    def on_resize(self, _event: events.Resize) -> None:
+        if self.settings and self._measure() != self._widths:
+            self._draw(self.cursor_row)
+
+    # The table is as tall as its rows and the page around it scrolls (ConfigView), so moving
+    # by a page means by what the page shows, and down from the last row reads on below it.
+    def _page(self) -> int:
+        view = self.parent
+        return max(1, view.scrollable_content_region.height - 2) if isinstance(view, Widget) else 1
+
+    def action_cursor_down(self) -> None:
+        view = self.parent
+        if self.row_count and self.cursor_row >= self.row_count - 1 and isinstance(view, Widget):
+            view.scroll_relative(y=1, animate=False)
+            return
+        super().action_cursor_down()
+
+    def action_page_down(self) -> None:
+        self.move_cursor(row=min(self.cursor_row + self._page(), self.row_count - 1))
+
+    def action_page_up(self) -> None:
+        self.move_cursor(row=max(self.cursor_row - self._page(), 0))
+
+
 class ConfigView(VerticalScroll):
+    """The config page (view 3): the settings table, then the paths, sources, schedule and
+    versions, in one scroll that follows the table's cursor."""
+
     # "escape" shadows the app's own back_to_table binding, the same way SourcesView's
     # does -- that one only clears reading state, it never flips the ContentSwitcher back.
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("j", "scroll_lines(1)", "scroll down", show=False),
         Binding("k", "scroll_lines(-1)", "scroll up", show=False),
+        Binding("y", "app.copy_config", "copy", show=False),
+        Binding("Y", "app.copy_config", "copy", show=False),
         Binding("escape", "back", "back"),
     ]
 
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
-        self.text_content = ""
+        self.text_content = ""  # the whole report, as `augury config` prints it
 
     def compose(self) -> ComposeResult:
+        yield Static(text("Settings", "bold"), id="config-title")
+        yield SettingsTable(id="settings")
         yield Static(id="config-text")
+
+    @property
+    def table(self) -> SettingsTable:
+        return self.query_one(SettingsTable)
+
+    @property
+    def _app(self) -> AuguryApp:
+        return cast("AuguryApp", self.app)
 
     def show(self, report: ConfigReport) -> None:
         self.text_content = render_config_text(report)
-        self.query_one("#config-text", Static).update(text(self.text_content))
+        self.table.show(report.settings)
+        self.query_one("#config-text", Static).update(text(render_details_text(report)))
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.data_table is self.table:
+            self.call_after_refresh(self._follow_cursor)
+
+    def _follow_cursor(self) -> None:
+        """The table is as tall as its rows, so this scroll (not the table's) keeps the cursor
+        in view: the first row shows the title too, the last one as much of the text below it
+        as fits (j goes on from there)."""
+        table = self.table
+        header = table.header_height if table.show_header else 0
+        y = table.virtual_region.y + header + table.cursor_row  # every row is one line
+        if table.cursor_row <= 0:
+            self.scroll_home(animate=False, immediate=True)
+        elif table.cursor_row >= table.row_count - 1:
+            self.scroll_to(y=min(y, self.max_scroll_y), animate=False, immediate=True, force=True)
+        else:
+            self.scroll_to_region(Region(0, y, 1, 1), animate=False, immediate=True, force=True)
 
     def action_scroll_lines(self, lines: int) -> None:
         self.scroll_relative(y=lines, animate=False)
 
     def action_back(self) -> None:
-        cast("AuguryApp", self.app).action_show_items()
+        self._app.action_show_items()
+
+    # -- editing (P14): the app's edit_setting / reset_setting actions land here --------------
+
+    def _editable(self, row: SettingRow) -> bool:
+        """Says why not, in a toast, when the selected row can't be changed here."""
+        app, name = self._app, f"{row.section}.{row.field}"
+        kind = editor_kind(row.section, row.field)
+        if kind == "secret" or row.value == MASKED_VALUE:
+            app.notify(f"{name} looks like a secret: it's never shown or edited here", markup=False)
+            return False
+        if kind == "file":
+            app.notify("Edit this one in config.toml (press e)", markup=False)
+            return False
+        try:
+            ensure_editable(app.paths)
+        except ConfigError as e:
+            app.notify(str(e), severity="error", markup=False)
+            return False
+        return True
+
+    def edit_selected(self) -> None:
+        """An editor chosen by the field's type: a bool flips, a Literal (and the theme) is
+        picked from its values, a number or a string is typed in and checked before saving."""
+        row = self.table.current()
+        if row is None or not self._editable(row):
+            return
+        app, section, field = self._app, row.section, row.field
+        name = f"{section}.{field}"
+        current = getattr(getattr(app.config, section), field)
+
+        def save(value: str | None) -> None:
+            if value is not None:
+                self.save(section, field, value)
+
+        def problem(value: str) -> str | None:
+            try:
+                check_value(app.paths, section, field, value)
+            except ConfigError as e:
+                return str(e)
+            return None
+
+        kind = editor_kind(section, field)
+        if (section, field) == ("tui", "theme"):
+            themes = [(theme, theme) for theme in sorted(app.available_themes)]
+            app.push_screen(ChoiceModal(name, themes, app.theme), save)
+        elif kind == "bool":
+            self.save(section, field, not current)
+        elif kind == "choice":
+            options = [(value, value) for value in choices(section, field)]
+            app.push_screen(ChoiceModal(name, options, str(current)), save)
+        else:
+            hint = input_hint(section, field)
+            app.push_screen(InputModal(name, str(current), hint, problem), save)
+
+    def save(self, section: str, field: str, value: object) -> None:
+        app = self._app
+        try:
+            config = set_value(app.paths, section, field, value)  # validated before it's written
+        except ConfigError as e:
+            app.notify(str(e), severity="error", markup=False)
+            return
+        app.adopt_config(config, section, field)
+        saved = _shown(getattr(getattr(config, section), field))
+        when = APPLIES_TEXT[applies(section, field)]
+        app.notify(f"Saved {section}.{field} = {saved} · {when}", markup=False)
+
+    def reset_selected(self) -> None:
+        """Back to the built-in default: the key leaves config.toml (and its section, if that
+        empties it). A theme picked with t is an override too, so a theme reset drops that."""
+        row = self.table.current()
+        if row is None or not self._editable(row):
+            return
+        app, section, field = self._app, row.section, row.field
+        name = f"{section}.{field}"
+        try:
+            config = reset_value(app.paths, section, field)
+        except ConfigError as e:
+            app.notify(str(e), severity="error", markup=False)
+            return
+        picked = app.session.state.theme if app.session is not None else None  # with t
+        if config is None and not ((section, field) == ("tui", "theme") and picked):
+            app.notify(f"{name} is already the default", markup=False, timeout=2)
+            return
+        config = config or app.config
+        app.adopt_config(config, section, field)
+        value = _shown(getattr(getattr(config, section), field))
+        when = APPLIES_TEXT[applies(section, field)]
+        app.notify(f"Reset {name} to its default: {value} · {when}", markup=False)
