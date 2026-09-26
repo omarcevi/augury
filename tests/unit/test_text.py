@@ -5,6 +5,7 @@ from augury.core.text import (
     item_id_for,
     slugify,
     strip_control_chars,
+    with_default_scheme,
 )
 
 
@@ -47,6 +48,24 @@ def test_item_ids():
     a = item_id_for("article", "https://x.com/post?utm_source=feed", None)
     b = item_id_for("article", "https://x.com/post/", None)
     assert a == b and a.startswith("web:") and len(a) == len("web:") + 16
+
+
+def test_with_default_scheme_looks_for_an_existing_scheme_only_before_the_path():
+    # P5.4: a bare "//" anywhere in the URL (e.g. inside a query value) used to be read as
+    # "this already has a scheme", so no https:// was added.
+    assert with_default_scheme("jvns.ca/?next=https://x") == "https://jvns.ca/?next=https://x"
+    assert with_default_scheme("example.com/a?b=http://c") == "https://example.com/a?b=http://c"
+
+
+def test_with_default_scheme_leaves_real_schemes_and_protocol_relative_urls_alone():
+    assert with_default_scheme("http://example.com/path") == "http://example.com/path"
+    assert with_default_scheme("//cdn.example.com/x") == "//cdn.example.com/x"
+    assert with_default_scheme("mailto:a@b.com") == "mailto:a@b.com"
+
+
+def test_with_default_scheme_still_adds_https_for_a_bare_domain_or_host_port():
+    assert with_default_scheme("example.com/path") == "https://example.com/path"
+    assert with_default_scheme("host:8080/path") == "https://host:8080/path"
 
 
 def test_content_hash_and_slugify():

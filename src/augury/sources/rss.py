@@ -31,7 +31,15 @@ def plain_text(fragment: str) -> str:
 
 def parse_feed(resp: Response) -> Any:
     # Bytes, so feedparser honours the XML encoding; the URL resolves relative links.
-    return feedparser.parse(resp.content, response_headers={"content-location": resp.url})
+    # Without a content-type, feedparser assumes iso-8859-1 (the old HTTP/XML default) and
+    # marks the feed `bozo` -- most feeds have no XML encoding declaration either, so a
+    # UTF-8 feed with curly quotes or CJK text gets flagged, or worse, mis-decoded. The
+    # real header (when the server sent one) always wins over this default.
+    content_type = resp.headers.get("content-type") or "application/xml"
+    return feedparser.parse(
+        resp.content,
+        response_headers={"content-location": resp.url, "content-type": content_type},
+    )
 
 
 def entry_datetime(entry: Any) -> datetime | None:

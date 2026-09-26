@@ -13,6 +13,10 @@ class _Section(BaseModel):
 
 
 class ScoutConfig(_Section):
+    # 0 disables auto-scout. At launch, a scout also runs if the last one was on an earlier
+    # local day (so a stale morning launch doesn't show yesterday's empty digest) -- but
+    # only while this stays <= 24h; past that the user wants a longer, deliberate interval
+    # (e.g. every 2 days), and midnight must not override it.
     auto_after_hours: float = Field(default=12.0, ge=0)
     enrich_max_per_run: int = Field(default=40, ge=0)
     prefetch_top_n: int = Field(default=10, ge=0)
@@ -77,6 +81,20 @@ def load_config(paths: AppPaths) -> Config:
         return Config.model_validate(data)
     except ValidationError as e:
         raise ConfigError(_describe(path, e)) from e
+
+
+def load_raw_toml(paths: AppPaths) -> dict[str, Any]:
+    """config.toml's own keys, verbatim -- used only to tell the config page (P3) which
+    effective settings came from the file vs. a pydantic default. Never used to validate;
+    `load_config` above is the only source of truth for that, and any error here (a
+    missing or unreadable file) just means "nothing came from the file"."""
+    path = paths.config_file
+    if not path.exists():
+        return {}
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError:
+        return {}
 
 
 def load_interests(paths: AppPaths) -> Interests:

@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from augury.sources.http import HttpClient
 from augury.sources.registry import ADAPTERS
 
 APP_NAME = "augury"
+_log = logging.getLogger(__name__)
 
 
 class SourceStats(BaseModel):
@@ -112,7 +114,11 @@ def build_scout_workflow(
         )
         sink.append(report)
         if deps.on_stored is not None:
-            deps.on_stored(report)
+            try:
+                deps.on_stored(report)
+            except Exception:  # a TUI refresh failing (e.g. a torn-down widget) must
+                # never fail the scout itself (P5.1) -- the items are already stored.
+                _log.exception("on_stored callback failed")
         return report
 
     async def enrich(node_input: ScoutReport) -> ScoutReport:

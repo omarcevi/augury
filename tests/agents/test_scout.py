@@ -121,3 +121,16 @@ async def test_a_cancelled_scout_is_recorded_as_interrupted(paths):
     assert RunsRepo(d.conn).last("scout").status == "interrupted"  # type: ignore[union-attr]
     with ScoutLock(paths.scout_lock_file):  # released too
         pass
+
+
+async def test_a_failing_on_stored_callback_never_fails_the_scout(paths, caplog):
+    # A TUI refresh triggered by on_stored (e.g. a widget query on a torn-down screen)
+    # must never take the whole scout down with it (P5.1).
+    def boom(_report):
+        raise RuntimeError("refresh blew up")
+
+    d = deps(paths, OK_ADAPTERS)
+    d.on_stored = boom
+    report = await run_scout(d)
+    assert report.status == "ok" and report.new_items == 4
+    assert any(r.message == "on_stored callback failed" and r.exc_info for r in caplog.records)

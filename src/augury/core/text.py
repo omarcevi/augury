@@ -21,7 +21,14 @@ def strip_control_chars(value: str) -> str:
 def with_default_scheme(url: str) -> str:
     """A bare "example.com/path" gets https://; anything else is returned as it is."""
     url = url.strip()
-    if "//" in url or url.startswith("/") or _SCHEME.match(url):
+    # A blanket `"//" in url` would also match one buried later, e.g. in a query value
+    # ("jvns.ca/?next=https://x") -- read as "already has a scheme" and left bare. The
+    # scheme's own "://" only counts when nothing before it looks like a path, a query or
+    # a fragment has already started.
+    scheme_end = url.find("://")
+    before_scheme = url[:scheme_end] if scheme_end != -1 else url
+    has_scheme_marker = scheme_end != -1 and not any(c in before_scheme for c in "/?#")
+    if has_scheme_marker or url.startswith(("//", "/")) or _SCHEME.match(url):
         return url
     return f"https://{url}"
 

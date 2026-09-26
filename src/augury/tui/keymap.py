@@ -11,6 +11,7 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
     "NORMAL": (
         KeyHint("/", "search"),
         KeyHint("2", "sources"),
+        KeyHint("3", "config"),
         KeyHint("S", "sources"),
         KeyHint("K", "kind"),
         KeyHint("D", "date"),
@@ -46,6 +47,14 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
         KeyHint("d", "remove"),
         KeyHint("r", "refresh"),
         KeyHint("1", "items"),
+        KeyHint("esc", "back"),
+        KeyHint("?", "help"),
+        KeyHint("q", "quit"),
+    ),
+    "CONFIG": (
+        KeyHint("1", "items"),
+        KeyHint("2", "sources"),
+        KeyHint("e", "edit config"),
         KeyHint("esc", "back"),
         KeyHint("?", "help"),
         KeyHint("q", "quit"),

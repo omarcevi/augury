@@ -71,7 +71,9 @@ def make_app(paths):
         config: Config | None = None,
         http=None,
         debounce: Callable[[], Awaitable[None]] | None = None,
+        editor_runner: Callable[[list[str]], object] | None = None,
     ) -> AuguryApp:
+        extra = {"editor_runner": editor_runner} if editor_runner is not None else {}
         app = AuguryApp(
             conn=open_db(paths, now=now),
             config=config or QUIET,
@@ -79,6 +81,7 @@ def make_app(paths):
             now=lambda: now,
             http_factory=lambda _cfg: http or NullHttp(),
             reader_debounce=debounce or instant,
+            **extra,
         )
         app.SEARCH_DEBOUNCE_S = 0  # type: ignore[misc]  # this app only, not the class
         return app

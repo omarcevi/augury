@@ -52,6 +52,18 @@ async def test_a_new_local_day_scouts_even_within_the_hours(make_app):
         assert _scout_count(app) == 2
 
 
+async def test_a_new_local_day_is_ignored_past_24h_auto_after_hours(make_app):
+    # P5.2: the new-day override is meant to catch up an idle overnight machine when the
+    # user wants roughly-daily scouts (auto_after_hours <= 24). A user who deliberately set
+    # a longer interval (e.g. every 2 days) must not get scouted every single midnight.
+    long_interval = Config(scout=ScoutConfig(auto_after_hours=48, enrich_max_per_run=0))
+    app = make_app(config=long_interval, http=CountingHttp())
+    _finished_scout(app, hours_ago=11)  # 22:00 yesterday; NOW is 09:00 the next day
+    async with app.run_test(size=(140, 40)):
+        await app.workers.wait_for_complete()
+        assert _scout_count(app) == 1
+
+
 async def test_items_appear_as_soon_as_they_are_stored(make_app):
     http = HfHttp()
     http.page_gate.clear()  # enrichment (article pages) waits; the API fetches don't

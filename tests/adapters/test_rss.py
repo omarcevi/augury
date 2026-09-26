@@ -4,8 +4,8 @@ import pytest
 from augury.agents.normalize import normalize
 from augury.core.models import FetchState, RssRecipe, Source
 from augury.sources.base import AdapterError
-from augury.sources.http import PoliteClient
-from augury.sources.rss import RssAdapter, inspect_feed
+from augury.sources.http import PoliteClient, Response
+from augury.sources.rss import RssAdapter, inspect_feed, parse_feed
 from tests.helpers import FakeTime, allow_robots
 
 ORIGIN = "https://example.com"
@@ -92,6 +92,38 @@ RELATIVE_FEED = (
     b"<item><title>About</title><link>/about</link></item>"
     b"<item><title>Post</title><link>posts/1</link></item></channel></rss>"
 )
+
+
+def _no_xml_decl_feed(text_title: str) -> bytes:
+    return (
+        f'<rss version="2.0"><channel><title>t</title><item><title>{text_title}</title>'
+        "<link>https://example.com/p</link></item></channel></rss>"
+    ).encode()
+
+
+def test_a_utf8_feed_without_a_content_type_header_is_not_bozo():
+    # No XML declaration and no HTTP Content-Type: feedparser's own default (iso-8859-1)
+    # would mis-decode this, and it flags every such feed `bozo` (P5.3).
+    body = _no_xml_decl_feed("“Quoted” 你好")  # curly quotes + CJK
+    resp = Response("https://example.com/feed.xml", 200, httpx.Headers({}), body)
+    feed = parse_feed(resp)
+    assert feed.bozo == 0
+    assert feed.entries[0].title == "“Quoted” 你好"
+
+
+def test_a_real_content_type_header_is_passed_through_not_overridden():
+    # A server's own charset (here iso-8859-1, no XML declaration either) must still be
+    # honored -- our default ("application/xml", implying utf-8) must not shadow it.
+    body = (
+        '<rss version="2.0"><channel><title>t</title><item><title>Caf\xe9</title>'.encode(
+            "iso-8859-1"
+        )
+        + b"<link>https://example.com/p</link></item></channel></rss>"
+    )
+    headers = httpx.Headers({"content-type": "application/rss+xml; charset=iso-8859-1"})
+    resp = Response("https://example.com/feed.xml", 200, headers, body)
+    feed = parse_feed(resp)
+    assert feed.entries[0].title == "Café"
 
 
 async def test_relative_entry_links_resolve_against_the_feed(http, respx_mock):

@@ -9,7 +9,7 @@ from augury import schedule as scheduling
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.cli.output import safe
 from augury.core.clock import utcnow
-from augury.core.config import ConfigError, load_config
+from augury.core.config import ConfigError, load_config, load_raw_toml
 from augury.core.db.open import open_db
 from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import HOME_ENV, app_paths
@@ -86,6 +86,31 @@ def init(yes: bool) -> None:
     for path in written:
         click.echo(f"wrote {path}")
     click.echo("Next: `augury scout` to fetch today's items, then `augury` to read them.")
+
+
+@main.command()
+@click.option("--path", "show_path", is_flag=True, help="Print only the config.toml path.")
+def config(show_path: bool) -> None:
+    """Show effective settings and their source, paths, source health, schedule and versions."""
+    paths = app_paths()
+    if show_path:
+        click.echo(str(paths.config_file))
+        return
+    from augury.tui.widgets.config_view import (  # lazy: keeps plain CLI commands quick
+        build_config_report,
+        render_config_text,
+    )
+
+    try:
+        cfg = load_config(paths)
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+    conn = open_db(paths)
+    try:
+        report = build_config_report(conn, cfg, paths, load_raw_toml(paths))
+    finally:
+        conn.close()
+    click.echo(safe(render_config_text(report)))
 
 
 def format_report(report: ScoutReport) -> str:

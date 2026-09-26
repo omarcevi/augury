@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from rich.console import RenderableType
 from textual import events, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
@@ -20,7 +20,7 @@ from textual.widgets import ContentSwitcher, DataTable, Input, Static
 
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.core.clock import local_day, utcnow
-from augury.core.config import Config, HttpConfig
+from augury.core.config import Config, ConfigError, HttpConfig, load_config, load_raw_toml
 from augury.core.db.items_repo import ItemsRepo
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
@@ -44,6 +44,14 @@ from augury.tui.query import (
 )
 from augury.tui.safe_text import text
 from augury.tui.ui_state import FilterState, UiSession, effective_theme
+from augury.tui.widgets.config_view import (
+    ConfigView,
+    EditorRunner,
+    build_config_report,
+    editor_command,
+    run_editor_subprocess,
+)
+from augury.tui.widgets.confirm_modal import ConfirmModal
 from augury.tui.widgets.filter_chips import DATE_LABELS, FilterChips
 from augury.tui.widgets.health_bar import HealthBar
 from augury.tui.widgets.help_overlay import HelpOverlay
@@ -75,6 +83,9 @@ _ITEMS_ONLY_ACTIONS = frozenset(
         "focus_search",
     }
 )
+# The mirror image: an action that only makes sense on the Config view (P3), disabled
+# everywhere else so its key (`e`) is harmless if a widget there doesn't shadow it.
+_CONFIG_ONLY_ACTIONS = frozenset({"edit_config"})
 
 
 class AuguryApp(App[None]):
@@ -87,6 +98,8 @@ class AuguryApp(App[None]):
         Binding("slash", "focus_search", "search"),
         Binding("1", "show_items", "items"),
         Binding("2", "show_sources", "sources"),
+        Binding("3", "show_config", "config"),
+        Binding("e", "edit_config", "edit config"),
         Binding("S", "pick_sources", "sources"),
         Binding("K", "pick_kinds", "kind"),
         Binding("D", "pick_date", "date"),
@@ -116,10 +129,12 @@ class AuguryApp(App[None]):
         now: Callable[[], datetime] = utcnow,
         http_factory: Callable[[HttpConfig], HttpClient] = PoliteClient,
         reader_debounce: Callable[[], Awaitable[None]] | None = None,
+        editor_runner: EditorRunner = run_editor_subprocess,
     ) -> None:
         super().__init__()
         self.conn, self.config, self.paths, self.now = conn, config, paths, now
         self.reader_debounce = reader_debounce or (lambda: asyncio.sleep(self.READER_DEBOUNCE_S))
+        self.editor_runner = editor_runner
         self.item_filter: ItemFilter = DIGEST_PRESET
         self._search_timer: Timer | None = None
         self.http_factory = http_factory
@@ -143,6 +158,7 @@ class AuguryApp(App[None]):
                     yield Static(id="empty")
                 yield ReaderPane(id="reader")
             yield SourcesView(id="sources-view")
+            yield ConfigView(id="config-view")
         yield StatusLine(id="status")
 
     def on_mount(self) -> None:
@@ -176,11 +192,11 @@ class AuguryApp(App[None]):
             return
         last = RunsRepo(self.conn).last("scout", statuses=("ok", "partial"))
         now = self.now()
-        if (
-            last is None
-            or now - last.started_at > timedelta(hours=hours)
-            or local_day(last.started_at) < local_day(now)  # a new day: today's view is empty
-        ):
+        # The new-day catch-up (today's view would otherwise be empty) only makes sense
+        # when the user wants roughly-daily scouts; past that, a longer auto_after_hours
+        # is a deliberate choice (e.g. every 2 days) that midnight must not override (P5.2).
+        new_day = hours <= 24 and last is not None and local_day(last.started_at) < local_day(now)
+        if last is None or now - last.started_at > timedelta(hours=hours) or new_day:
             self.start_scout()
 
     def action_scout(self) -> None:
@@ -500,7 +516,9 @@ class AuguryApp(App[None]):
         # `run_action` calls this fresh before every dispatch (see `App._check_bindings`),
         # so it needs no cache invalidation of its own -- `refresh_bindings()` elsewhere is
         # only for a Footer-style widget that caches `active_bindings` for display.
-        return not (action in _ITEMS_ONLY_ACTIONS and self.mode == "SOURCES")
+        if action in _ITEMS_ONLY_ACTIONS and self.mode in ("SOURCES", "CONFIG"):
+            return False
+        return action not in _CONFIG_ONLY_ACTIONS or self.mode == "CONFIG"
 
     def action_help(self) -> None:
         self.push_screen(HelpOverlay(self.mode))
@@ -548,6 +566,68 @@ class AuguryApp(App[None]):
 
     def refresh_sources(self) -> None:
         self.query_one(SourcesView).refresh_view()
+
+    def action_show_config(self) -> None:
+        self.query_one(ContentSwitcher).current = "config-view"
+        self.refresh_config()
+        self.query_one(ConfigView).focus()
+        self.mode = "CONFIG"
+        self.refresh_bindings()
+
+    def refresh_config(self) -> None:
+        report = build_config_report(self.conn, self.config, self.paths, load_raw_toml(self.paths))
+        self.query_one(ConfigView).show(report)
+
+    def action_edit_config(self) -> None:
+        path = self.paths.config_file
+        if path.exists():
+            self._open_editor_and_reload()
+            return
+
+        def done(yes: bool | None) -> None:
+            if yes:
+                path.touch()
+                self._open_editor_and_reload()
+
+        self.push_screen(ConfirmModal(f"{path} doesn't exist yet. Create it?"), done)
+
+    def _open_editor_and_reload(self) -> None:
+        cmd = editor_command(self.paths.config_file)
+        try:
+            with self.suspend():
+                # Caught *inside* the `with` block, not around it: an exception that
+                # escapes `with self.suspend():` skips suspend()'s own cleanup
+                # (resume_application_mode etc.), leaving the terminal stuck suspended.
+                launched = self._run_editor(cmd)
+        except SuspendNotSupported:  # e.g. under `run_test()`, which never has a real tty
+            launched = self._run_editor(cmd)
+        if not launched:
+            return
+        try:
+            self.config = load_config(self.paths)
+        except ConfigError as e:
+            self.notify(str(e), severity="error", markup=False)
+            return
+        self.notify(
+            "config.toml reloaded. Some settings only take effect on the next launch.",
+            markup=False,
+        )
+        self.refresh_config()
+
+    def _run_editor(self, cmd: list[str]) -> bool:
+        """Runs the editor, reporting -- never raising -- a failure to launch it (a
+        stale/misspelled $EDITOR, or a missing xdg-open on Linux both raise `OSError`
+        from `subprocess.run`)."""
+        try:
+            self.editor_runner(cmd)
+        except Exception as exc:
+            self.notify(
+                f"Couldn't open the editor ({' '.join(cmd)}): {exc}",
+                severity="error",
+                markup=False,
+            )
+            return False
+        return True
 
     def close_reader_if_item_gone(self) -> None:
         """Call after anything that may have deleted the item open in the reader (e.g.

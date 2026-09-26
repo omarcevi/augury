@@ -27,7 +27,16 @@ def selection_label(values: frozenset[str]) -> str:
 class Chip(Static):
     def __init__(self, label: str, key: str, *, id: str) -> None:
         super().__init__(id=id, classes="chip")
-        self.border_title = f"{label} ({key})"
+        title = f"{label} ({key})"
+        self.border_title = title
+        # The CSS `.chip { min-width: 14 }` fits most titles, but not e.g. "Sources (S)"
+        # (11 chars), so the title got cut to "Sources…" (user screenshot, 2026-09-26).
+        # Every chip's own title length decides its floor instead, so a short value (like
+        # "hf-blog") never widens it. +6 is the border row's own decoration around a title
+        # -- 2 corners, 1 dash + 1 space flanking each side ("╭─ Title ─╮") -- measured
+        # directly (Textual 8.2.8 doesn't expose it): anything less truncates the title
+        # even though the box "fits" by border+padding alone.
+        self.styles.min_width = len(title) + 6
         self.value = ""
 
     def set_value(self, value: str) -> None:
