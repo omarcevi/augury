@@ -17,6 +17,7 @@ def test_config_prints_every_section_with_defaults(paths):
     for header in ("Settings", "Paths", "Sources", "Schedule", "Versions"):
         assert f"\n{header}\n" in f"\n{result.output}\n"
     assert "tui.theme = textual-dark  (default)" in result.output
+    assert "tui.tldr = shown  (default)" in result.output  # P12, from the generic walk
     assert str(paths.config_file) in result.output
     assert "3 enabled, 0 disabled" in result.output  # the 3 builtin sources, seeded on open
 

@@ -59,6 +59,15 @@ def test_remember_state_is_on_and_reopening_the_last_article_is_off_by_default(p
     assert tui.remember_state is False and tui.reopen_last_article is True
 
 
+def test_the_tldr_box_is_shown_by_default_and_can_start_collapsed(paths):
+    assert load_config(paths).tui.tldr == "shown"
+    paths.config_file.write_text('[tui]\ntldr = "collapsed"\n')
+    assert load_config(paths).tui.tldr == "collapsed"
+    paths.config_file.write_text('[tui]\ntldr = "hidden"\n')
+    with pytest.raises(ConfigError, match=r"tui\.tldr: Input should be 'shown' or 'collapsed'"):
+        load_config(paths)
+
+
 def test_remember_state_must_be_a_boolean(paths):
     paths.config_file.write_text('[tui]\nremember_state = "sometimes"\n')
     with pytest.raises(ConfigError, match=r"tui\.remember_state: Input should be a valid boolean"):

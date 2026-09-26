@@ -141,6 +141,7 @@ def test_render_config_text_has_every_section_header(paths):
     for header in ("Settings", "Paths", "Sources", "Schedule", "Versions"):
         assert f"\n{header}\n" in f"\n{rendered}\n"
     assert "tui.theme" in rendered and "(default)" in rendered
+    assert "tui.tldr = shown  (default)" in rendered  # P12
 
 
 def test_editor_command_prefers_editor_then_visual_then_a_platform_opener(monkeypatch, tmp_path):

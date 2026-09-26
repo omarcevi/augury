@@ -230,6 +230,8 @@ def build_scout_workflow(
                 run_id=run_id,
                 make_call=lambda agent: node_caller(ctx, agent),
                 now=deps.now,
+                # P12: config.toml's only; the TUI's remembered h toggle never reaches the scout.
+                tldrs=deps.config.tui.tldr == "shown",
             )
         except Exception as exc:  # reading ahead is best effort; it never fails the scout
             stats = PrefetchStats(error=f"{type(exc).__name__}: {exc}")

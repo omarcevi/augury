@@ -1,7 +1,7 @@
 import tomllib
 from importlib.resources import files
 from pathlib import Path
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Literal, Self
 
 import yaml
 from pydantic import (
@@ -132,6 +132,9 @@ class TuiConfig(_Section):
     copy_on_select: bool = True
     # The reader's text column in cells (zen mode centres it; the rest becomes margins).
     reading_width: int = Field(default=88, ge=40, le=200)
+    # How the reader's TL;DR box starts: shown, or collapsed to one line (h toggles).
+    # Collapsed writes no TL;DRs until you expand it.
+    tldr: Literal["shown", "collapsed"] = "shown"
 
 
 class Config(_Section):

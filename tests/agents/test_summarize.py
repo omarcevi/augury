@@ -9,7 +9,7 @@ from augury.agents.normalize import store_items
 from augury.agents.prefetch import PrefetchStats, prefetch_top
 from augury.agents.summarize import Summarizer, accept_summary
 from augury.core.clock import local_day
-from augury.core.config import Config, SummarizerConfig
+from augury.core.config import Config, SummarizerConfig, TuiConfig
 from augury.core.db.contents_repo import ContentsRepo
 from augury.core.db.digest_repo import DigestRepo
 from augury.core.db.items_repo import ItemsRepo
@@ -171,8 +171,9 @@ def digest_of(paths, n: int):
     return conn, ids
 
 
-async def prefetch(conn, llm, *, limit: int) -> PrefetchStats:
-    summarizer = Summarizer(conn, Config(), fake_resolver(llm), now=lambda: NOW)
+async def prefetch(conn, llm, *, limit: int, config: Config | None = None) -> PrefetchStats:
+    config = config or Config()
+    summarizer = Summarizer(conn, config, fake_resolver(llm), now=lambda: NOW)
     run_id = RunsRepo(conn).start("scout", now=NOW)
     return await run_in_node(
         "prefetch_test",
@@ -185,6 +186,7 @@ async def prefetch(conn, llm, *, limit: int) -> PrefetchStats:
             run_id=run_id,
             make_call=lambda agent: node_caller(ctx, agent),
             now=lambda: NOW,
+            tldrs=config.tui.tldr == "shown",  # as the scout passes it
         ),
     )
 
@@ -218,3 +220,15 @@ async def test_prefetch_stops_when_the_budget_is_spent(paths):
     stats = await prefetch(conn, llm, limit=2)
     assert (stats.extracted, stats.summarized) == (1, 0) and llm.requests == []
     assert "daily budget" in (stats.stopped or "")
+
+
+async def test_prefetch_with_a_collapsed_tldr_box_reads_ahead_but_writes_no_tldrs(paths):
+    # P12: [tui] tldr = "collapsed" spends nothing on TL;DRs until one is expanded in the reader.
+    conn, ids = digest_of(paths, 3)
+    llm = ScriptedLlm(replies=[summary_reply()] * 3)
+    collapsed = Config(tui=TuiConfig(tldr="collapsed"))
+    stats = await prefetch(conn, llm, limit=3, config=collapsed)
+    assert (stats.extracted, stats.summarized, stats.stopped) == (3, 0, None)
+    assert llm.requests == []
+    summarizer = Summarizer(conn, Config(), fake_resolver(), now=lambda: NOW)
+    assert all(summarizer.cached(i) is None for i in ids)

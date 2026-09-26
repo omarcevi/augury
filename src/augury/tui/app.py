@@ -77,7 +77,7 @@ from augury.tui.widgets.health_bar import HealthBar
 from augury.tui.widgets.help_overlay import HelpOverlay
 from augury.tui.widgets.items_table import ItemsTable
 from augury.tui.widgets.picker_modal import ChoiceModal, PickerModal
-from augury.tui.widgets.reader_pane import ReaderPane
+from augury.tui.widgets.reader_pane import NOT_WRITTEN, SUMMARIZING, ReaderPane
 from augury.tui.widgets.sources_view import SourcesView
 from augury.tui.widgets.status_line import StatusLine
 
@@ -105,6 +105,7 @@ _ITEMS_ONLY_ACTIONS = frozenset(
         "focus_search",
         "toggle_triage_hidden",
         "retry_tldr",
+        "toggle_tldr",
     }
 )
 # The mirror image: an action that only makes sense on the Config view (P3), disabled
@@ -424,6 +425,10 @@ class AuguryApp(App[None]):
             search = self.query_one("#search", Input)
             with search.prevent(Input.Changed):  # applied already; again would reset the row
                 search.value = self.item_filter.search
+        # P12: the TL;DR box as h last left it, else as config.toml says.
+        saved = session.previous.tldr_collapsed if self.config.tui.remember_state else None
+        configured = self.config.tui.tldr == "collapsed"
+        self.query_one(ReaderPane).tldr_collapsed = configured if saved is None else saved
 
     def restore_session(self) -> None:
         """P2: the last run's row, view and (if asked) open article; what's gone is skipped."""
@@ -520,7 +525,7 @@ class AuguryApp(App[None]):
         self.load_content(item_id, restored=restored)
         # The cached TL;DR (or none) at once; a new one comes only after the body (load_summary).
         if (cached := self.summarizer.cached(item_id)) is None and self._summarizing == item_id:
-            self.query_one(ReaderPane).show_tldr(None, "Summarizing…")  # still on its way
+            self.query_one(ReaderPane).show_tldr(None, SUMMARIZING)  # still on its way
         else:
             self.query_one(ReaderPane).show_tldr(cached)
 
@@ -576,8 +581,9 @@ class AuguryApp(App[None]):
             if self.is_running:
                 self._reanchor()  # back to the saved position once the body is laid out
                 # F28: a TL;DR on Enter only. P2's reopen at launch isn't one, so it shows a
-                # cached TL;DR (open_item) and never calls the model (spec §8.3.1).
-                if not restored and self._summarizing != item_id:
+                # cached TL;DR (open_item) and never calls the model (spec §8.3.1). A collapsed
+                # box (P12) never calls it either, so it runs on a reopen too: "not written yet".
+                if self._summarizing != item_id and (reader.tldr_collapsed or not restored):
                     self.load_summary(item_id)
         else:
             reader.show_status(
@@ -588,9 +594,10 @@ class AuguryApp(App[None]):
 
     @work(exclusive=True, group="summary")
     async def load_summary(self, item_id: str) -> None:
-        """Only after Enter (via load_content) or T, never on cursor movement (spec §8.3.1).
+        """Only after Enter (via load_content), T or h, never on cursor movement (spec §8.3.1).
         Opening another item starts its own, which cancels this one: `summarize` then closes
-        its run as interrupted."""
+        its run as interrupted. A collapsed box (P12) never asks the model: it shows the cached
+        TL;DR, or that one isn't written yet."""
         # No key: TL;DRs are simply absent. Return before touching any widget: this worker can
         # start while the app is shutting down, when the reader's widgets are already gone.
         if not self.is_running or not self.summarizer.available or self.reading_id != item_id:
@@ -602,10 +609,13 @@ class AuguryApp(App[None]):
         if (cached := self.summarizer.cached(item_id)) is not None:
             self._show_tldr(cached)
             return
+        if self.query_one(ReaderPane).tldr_collapsed:  # as it is now, e.g. after h h
+            self._show_tldr(None, NOT_WRITTEN)
+            return
         if (problem := self.summarizer.budget_problem()) is not None:
             self._show_tldr(None, f"No TL;DR today: {problem}.")
             return
-        self._show_tldr(None, "Summarizing…")
+        self._show_tldr(None, SUMMARIZING)
         self._summarizing = item_id
         try:
             summary = await self.summarizer.summarize(item, content)
@@ -644,8 +654,32 @@ class AuguryApp(App[None]):
             return
         if not self.summarizer.available:
             self.notify("No TL;DR: AI is not configured.", markup=False, timeout=3)
-        elif self._summarizing != self.reading_id:  # T while it's on its way changes nothing
+            return
+        self._collapse_tldr(False)  # P12: T on a collapsed box expands it, then retries
+        if self._summarizing != self.reading_id:  # T while it's on its way changes nothing
             self.load_summary(self.reading_id)
+
+    def action_toggle_tldr(self) -> None:
+        """P12: h collapses the TL;DR box to one line, or expands it again. Expanding asks for
+        a TL;DR the open item doesn't have yet, as Enter does on an expanded box."""
+        item_id = self.reading_id
+        if item_id is None or not self.summarizer.available:
+            return  # nothing to toggle in the list; without a key the box stays hidden
+        collapsed = not self.query_one(ReaderPane).tldr_collapsed
+        self._collapse_tldr(collapsed)
+        if collapsed or self._summarizing == item_id:  # on its way already: never a second call
+            return
+        if self.summarizer.cached(item_id) is None:
+            self.load_summary(item_id)
+
+    def _collapse_tldr(self, collapsed: bool) -> None:
+        reader = self.query_one(ReaderPane)
+        if reader.tldr_collapsed == collapsed:
+            return
+        reader.collapse_tldr(collapsed)
+        self._reanchor()  # the box's height changed the article's, so keep the reading position
+        if self.session is not None:  # saved at once, like the theme; restored per remember_state
+            self.session.update(tldr_collapsed=collapsed)
 
     def _refresh_row(self, item_id: str) -> None:
         if (row := get_item_row(self.conn, item_id, now=self.now())) is not None:

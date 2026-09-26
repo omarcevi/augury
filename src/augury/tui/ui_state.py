@@ -1,5 +1,5 @@
-"""What the TUI remembers between runs: the theme (P1), the last state (P2) and the last
-visit (P11).
+"""What the TUI remembers between runs: the theme (P1), the last state (P2), the last
+visit (P11) and whether the reader's TL;DR box is collapsed (P12).
 
 It lives in data/ui_state.json, never in config.toml: that's the user's own file and nothing
 rewrites it. This file is only a convenience, so a missing, unreadable or corrupt one means
@@ -77,6 +77,8 @@ class UiState(BaseModel):
     # The article open in the reader at exit, and how far through it (a fraction).
     reading_item_id: str | None = None
     reading_progress: float | None = Field(default=None, ge=0, le=1)
+    # P12: only set by h in the reader, so config.toml's [tui] tldr applies until then.
+    tldr_collapsed: bool | None = None
 
 
 def load(paths: AppPaths) -> UiState:

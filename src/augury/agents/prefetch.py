@@ -1,5 +1,6 @@
 """Prefetch (spec §5.2, §5.5): after ranking, read ahead the top N digest items (full text into
-the reader cache) and make their TL;DRs, so the first Enter of the day is instant."""
+the reader cache) and make their TL;DRs, so the first Enter of the day is instant. With
+[tui] tldr = "collapsed" (P12) it only reads ahead: no TL;DR is made until one is expanded."""
 
 import sqlite3
 from collections.abc import Callable
@@ -50,6 +51,7 @@ async def prefetch_top(
     run_id: str,
     make_call: Callable[[LlmAgent], Call],
     now: Callable[[], datetime],
+    tldrs: bool = True,
 ) -> PrefetchStats:
     stats = PrefetchStats()
     for item in top_items(conn, day, limit):
@@ -57,7 +59,7 @@ async def prefetch_top(
         if content.status != "ok":
             continue  # the reader shows the summary and offers the browser (spec §11)
         stats.extracted += 1
-        if summarizer.cached(item.id) is not None:
+        if not tldrs or summarizer.cached(item.id) is not None:
             continue
         if (problem := summarizer.budget_problem()) is not None:
             stats.stopped = problem

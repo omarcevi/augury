@@ -42,9 +42,10 @@ def test_a_round_trip_keeps_everything(paths):
         selected_item_id="web:1",
         reading_item_id="web:2",
         reading_progress=0.4,
+        tldr_collapsed=True,
     )
     save(paths, state)
-    assert load(paths) == state
+    assert load(paths) == state and load(paths).tldr_collapsed is True
 
 
 @pytest.mark.parametrize("raw", [b"{not json", b"", b"[1, 2]", b"null", b'"text"', b"\xff\xfe{"])

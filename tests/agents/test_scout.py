@@ -9,7 +9,7 @@ import pytest
 from augury.agents import scout
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.core.clock import local_day
-from augury.core.config import Config, ExportConfig, ScoutConfig
+from augury.core.config import Config, ExportConfig, ScoutConfig, TuiConfig
 from augury.core.db.digest_repo import DigestRepo
 from augury.core.db.open import open_db
 from augury.core.db.runs_repo import RunsRepo
@@ -214,6 +214,24 @@ async def test_the_scout_reads_ahead_and_summarizes_the_top_items(paths):
     assert report.prefetch is not None
     assert (report.prefetch.extracted, report.prefetch.summarized) == (2, 2)
     assert len(http.calls) == 2
+
+
+async def test_a_collapsed_tldr_box_reads_ahead_but_writes_no_tldrs(paths):
+    # P12: only config.toml counts here; the TUI's remembered toggle never reaches the scout.
+    urls = ["hf-papers/p1", "hf-papers/p2", "hf-blog/b1", "hf-community/c1"]
+    http = CountingHttp({f"https://x.com/{u}": GENERIC for u in urls})
+    d = deps(paths, OK_ADAPTERS)
+    d.http = http
+    d.config = Config(
+        scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=2),
+        tui=TuiConfig(tldr="collapsed"),
+    )
+    d.resolver = fake_resolver(ScriptedLlm(replies=[echo_triage, summary_reply(), summary_reply()]))
+    report = await run_scout(d)
+    assert report.prefetch is not None
+    assert (report.prefetch.extracted, report.prefetch.summarized) == (2, 0)
+    assert len(http.calls) == 2
+    assert d.conn.execute("SELECT COUNT(*) FROM summaries").fetchone()[0] == 0
 
 
 async def test_without_a_key_the_scout_reads_nothing_ahead(paths):

@@ -38,6 +38,8 @@ PickerModal, ChoiceModal { align: center middle; }
 /* F28: up to half the reader; a longer TL;DR scrolls inside the box (the scrollbar says so). */
 #reader-tldr-box { display: none; height: auto; max-height: 50%; overflow-y: auto; scrollbar-size-vertical: 1; border: round $accent; border-title-color: $accent; padding: 0 1; }
 #reader-tldr { height: auto; }
+/* P12: collapsed (h), the box holds one line that never wraps onto a second. */
+#reader-tldr.collapsed { text-wrap: nowrap; text-overflow: ellipsis; }
 #reader-doc { height: 1fr; }
 /* P10: the text column is capped at [tui] reading_width (ReaderPane.set_reading_width); centre it. */
 #reader-doc { align-horizontal: center; }

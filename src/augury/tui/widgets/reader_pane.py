@@ -23,6 +23,11 @@ from augury.tui.query import ItemRow
 from augury.tui.safe_text import text
 from augury.tui.widgets.contents_list import ContentsList
 
+# What the TL;DR box says while one is on its way, and (P12) while none is written yet but one
+# could be, which only a collapsed box shows: expanding it asks for one.
+SUMMARIZING = "Summarizing…"
+NOT_WRITTEN = "Not written yet."
+
 
 class ScrollingTableContent(MarkdownTableContent):
     """Columns at their natural width, up to 40 cells. Textual's table content is a grid that
@@ -122,6 +127,7 @@ class ReaderPane(Vertical):
         Binding("right_square_bracket", "next_section", "next section"),
         Binding("z", "app.toggle_zen", "zen"),
         Binding("T", "app.retry_tldr", "retry TL;DR", show=False),  # F28; `t` is the theme
+        Binding("h", "app.toggle_tldr", "hide/show TL;DR", show=False),  # P12
         Binding("n", "app.next_item", "next"),
         Binding("p", "app.prev_item", "prev"),
         Binding("escape", "app.back_to_table", "back"),
@@ -132,6 +138,8 @@ class ReaderPane(Vertical):
         self.status_message = ""
         self.preview_text = ""
         self.tldr_text = ""  # what the TL;DR box shows, as plain text ("" while it's hidden)
+        self.tldr_collapsed = False  # P12: the box on one line (AuguryApp sets it, h toggles it)
+        self._tldr: tuple[Summary | None, str] = (None, "")  # what show_tldr was last given
 
     def compose(self) -> ComposeResult:
         yield Static(id="reader-header")
@@ -186,7 +194,9 @@ class ReaderPane(Vertical):
 
     def show_tldr(self, summary: Summary | None, message: str = "") -> None:
         """A TL;DR, a one-line status, or nothing at all (the box hides). The bullets come from
-        the model, so they go through `text()`: shown literally, never parsed as markup."""
+        the model, so they go through `text()`: shown literally, never parsed as markup.
+        Collapsed (P12), the box keeps its border and title around a single line instead."""
+        self._tldr = summary, message
         box = self.query_one("#reader-tldr-box", VerticalScroll)
         tldr = self.query_one("#reader-tldr", Static)
         if summary is None and not message:
@@ -196,7 +206,15 @@ class ReaderPane(Vertical):
             box.display = tldr.display = False
             return
         body = Text()
-        if summary is None:
+        if self.tldr_collapsed:
+            if summary is not None:
+                note = ""
+            else:  # a failed or budget-stopped TL;DR isn't written yet either: h asks again
+                note = "summarizing… · " if message == SUMMARIZING else "not written yet · "
+            body.append_text(text(f"TL;DR ▸  {note}h to show", "dim"))
+            if box.has_focus:  # nothing left in it to scroll
+                self.viewer.document.focus()
+        elif summary is None:
             body.append_text(text(message, "dim"))
         else:
             for bullet in summary.tldr:
@@ -207,8 +225,14 @@ class ReaderPane(Vertical):
             body.rstrip()
         self.tldr_text = body.plain
         tldr.update(body)
+        tldr.set_class(self.tldr_collapsed, "collapsed")
         box.display = tldr.display = True
         box.scroll_home(animate=False, immediate=True)  # each TL;DR from its first bullet
+
+    def collapse_tldr(self, collapsed: bool) -> None:
+        """P12: the box on one line, or in full again, showing what it was last given."""
+        self.tldr_collapsed = collapsed
+        self.show_tldr(*self._tldr)
 
     def show_markdown(self, md: str) -> AwaitComplete:
         # Untrusted page text: Textual passes ESC through, so escape sequences go here.

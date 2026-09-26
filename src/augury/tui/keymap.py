@@ -70,10 +70,11 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
     ),
 }
 
-# Keys the help screen lists but the hints row leaves out: the row is full, and T only matters
-# after a TL;DR failed, when the reader's own message names it.
+# Keys the help screen lists but the hints row leaves out: the row is full (either would push
+# z:zen off at 90 columns). T only matters after a TL;DR failed, when the reader's own message
+# names it; a collapsed TL;DR box names h itself.
 HELP_ONLY: dict[str, tuple[KeyHint, ...]] = {
-    "READ": (KeyHint("T", "retry TL;DR"),),
+    "READ": (KeyHint("h", "hide/show TL;DR"), KeyHint("T", "retry TL;DR")),
 }
 
 THEMES = (
