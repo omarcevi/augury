@@ -228,3 +228,20 @@ async def test_removing_the_open_items_source_closes_the_reader_gracefully(make_
         assert not app.screen.has_class("reading")
         assert app.query_one(ItemsTable).row_count == 0  # its item is gone too; the view refreshed
         await app.workers.wait_for_complete()
+
+
+async def test_a_broken_source_says_so_in_the_table_and_the_detail(make_app):
+    app = make_app()
+    add_user_source(app)
+    repo = SourcesRepo(app.conn)
+    for _ in range(3):
+        repo.record_failure("example-blog", "AdapterError: 0 entries", now=NOW)
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.press("2")
+        table = app.query_one(SourcesTable)
+        table.select_key("example-blog")
+        await pilot.pause()
+        row = table.get_row("example-blog")
+        assert str(row[0]) == "✗"
+        detail = app.query_one(SourceDetail).text_content
+        assert "broken: the last 3 fetches failed" in detail

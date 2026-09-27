@@ -2,6 +2,7 @@ from rich.text import Text
 from textual.widgets import Static
 
 from augury.core.db.sources_repo import SourceRecord
+from augury.sources.health import health_note
 from augury.tui.safe_text import text
 
 
@@ -31,6 +32,8 @@ class SourceDetail(Static):
             f"health {record.health} · {record.consecutive_failures} consecutive failures"
             f" · {count} items",
         ]
+        if note := health_note(record):
+            lines.append(note)
         if record.last_error:
             lines.append(f"last error {record.last_error}")
         if error:
