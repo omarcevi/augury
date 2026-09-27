@@ -8,6 +8,7 @@ requires-python = ">=3.14"
 dependencies = [
     "beautifulsoup4>=4.15.0",
     "click>=8.5.0",
+    "ddgs>=9.16.0",
     "feedparser>=6.0.14",
     "google-adk>=2.9.2",
     "google-genai>=2.25.0",

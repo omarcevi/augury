@@ -122,6 +122,14 @@ class SummarizerConfig(_Section):
     max_input_chars: int = Field(default=120_000, ge=1_000)  # spec §5.5
 
 
+class SearchConfig(_Section):
+    # Web search for discovery (spec §5.6). auto = Gemini's Google Search grounding when the
+    # smart model is gemini/ or vertex_ai/, DuckDuckGo (no key) otherwise. Tavily and Exa read
+    # TAVILY_API_KEY / EXA_API_KEY from the environment or .env, never from this file.
+    provider: Literal["auto", "gemini", "duckduckgo", "tavily", "exa"] = "auto"
+    max_results: int = Field(default=8, ge=1, le=20)
+
+
 class TuiConfig(_Section):
     theme: str = "textual-dark"
     # Restore the last filters, search, view and selected row on launch (data/ui_state.json).
@@ -147,6 +155,7 @@ class Config(_Section):
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     ranking: RankingConfig = Field(default_factory=RankingConfig)
     summarizer: SummarizerConfig = Field(default_factory=SummarizerConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
     pricing: dict[str, PriceConfig] = Field(default_factory=dict)  # [pricing."<provider/model>"]
 
 

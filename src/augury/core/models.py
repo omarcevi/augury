@@ -1,6 +1,8 @@
 import re
+import re._parser as sre_parser
+from collections.abc import Iterator
 from datetime import datetime, timedelta
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlsplit
 
 import soupsieve
@@ -44,11 +46,50 @@ class RssRecipe(BaseModel):
     feed_url: HttpUrlStr
 
 
+MAX_PATTERN_CHARS = 200
+_REPEATS = frozenset({"MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"})
+
+
+def _subpatterns(av: object) -> Iterator[Any]:
+    """The parsed subpatterns inside one node's arguments (groups, branches, lookarounds)."""
+    if isinstance(av, sre_parser.SubPattern):
+        yield av
+    elif isinstance(av, tuple | list):
+        for part in av:
+            yield from _subpatterns(part)
+
+
+def _nested_repeat(tree: Any, inside: bool = False) -> bool:
+    r"""True when a repeat that can run more than once ({2,}, +, *) contains another repeat of
+    variable length: (a+)+, (\w+\s?)* or (a*)*, the shape that backtracks exponentially."""
+    for op, av in tree:
+        if str(op) in _REPEATS:
+            low, high, body = av
+            if inside and low != high:
+                return True
+            if _nested_repeat(body, inside or high > 1):
+                return True
+        elif any(_nested_repeat(sub, inside) for sub in _subpatterns(av)):
+            return True
+    return False
+
+
 def _regex(value: str) -> str:
+    """A pattern for URL paths. Nested repeats are refused: a model writes these patterns and
+    any site supplies the paths, and one catastrophic backtrack would freeze the event loop.
+    Overlapping alternatives in a repeat, like (a|a)+, can still backtrack; they are rare."""
+    if len(value) > MAX_PATTERN_CHARS:
+        raise ValueError(f"a regular expression can be at most {MAX_PATTERN_CHARS} characters")
     try:
         re.compile(value)
+        tree = sre_parser.parse(value)
     except re.error as e:
         raise ValueError(f"not a valid regular expression: {e}") from e
+    if _nested_repeat(tree):
+        raise ValueError(
+            "a regular expression can't repeat a group that holds another repeat, like (a+)+ "
+            "or ([a-z0-9-]+/?)+: it can take forever to match; write it without one"
+        )
     return value
 
 

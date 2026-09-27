@@ -36,6 +36,22 @@ def no_provider_credentials(request: pytest.FixtureRequest):
     os.environ.update(saved)
 
 
+PUBLIC_TEST_IP = "93.184.215.14"  # a public address: the fake DNS answers it for every name
+
+
+async def public_dns(host: str) -> list[str]:
+    return [PUBLIC_TEST_IP]
+
+
+@pytest.fixture(autouse=True)
+def no_real_dns(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Offline tests never resolve names: the discovery tools' public-address check
+    (sources/public_only.py) sees every host name as public unless a test passes its own
+    resolver. Literal IPs, localhost and the rest are still judged for real."""
+    if not request.node.get_closest_marker("live"):
+        monkeypatch.setattr("augury.sources.public_only.system_resolve", public_dns)
+
+
 @pytest.fixture
 def paths(tmp_path, monkeypatch) -> AppPaths:
     monkeypatch.setenv("AUGURY_HOME", str(tmp_path / "home"))

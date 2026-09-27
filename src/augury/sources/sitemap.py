@@ -31,6 +31,7 @@ from augury.sources.rss import plain_text
 MAX_CHILD_SITEMAPS = 3  # a sitemap index: only the newest few children are read
 MAX_SEEN = 5000  # FetchState.seen_urls cap (JSON in sources.fetch_state_json)
 MAX_UNZIPPED = 10_000_000  # the same cap PoliteClient puts on a response
+MAX_MATCH_PATH = 512  # recipe patterns only ever see this much of a URL's path
 _GZIP_MAGIC = b"\x1f\x8b"
 _DTD_MESSAGE = "the sitemap declares a DTD or entities, which sitemaps never need"
 
@@ -141,7 +142,7 @@ def matching(entries: list[SitemapEntry], recipe: SitemapRecipe) -> list[Sitemap
     exclude = re.compile(recipe.exclude_pattern) if recipe.exclude_pattern else None
     out: list[SitemapEntry] = []
     for e in entries:
-        path = urlsplit(e.url).path or "/"
+        path = (urlsplit(e.url).path or "/")[:MAX_MATCH_PATH]
         if include.search(path) and not (exclude and exclude.search(path)):
             out.append(e)
     return list({e.url: e for e in out}.values())  # a URL listed twice counts once

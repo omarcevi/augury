@@ -3,6 +3,7 @@ import json
 import random
 import time
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -45,6 +46,21 @@ class NetworkError(HttpError):
 
 class ResponseTooLarge(HttpError):
     pass
+
+
+class NotPublicAddress(HttpError):
+    """A fetch a model or a fetched page chose, refused because its host isn't public."""
+
+
+# A check for every request a call sends (redirect hops and robots.txt included), set per call
+# by sources/public_only.py's PublicOnlyHttp. Unset, as for the scout, every host is allowed.
+UrlGuard = Callable[[str], Awaitable[None]]
+URL_GUARD: ContextVar[UrlGuard | None] = ContextVar("augury_url_guard", default=None)
+
+
+async def _guard_request(request: httpx.Request) -> None:
+    if (guard := URL_GUARD.get()) is not None:
+        await guard(str(request.url))  # raises NotPublicAddress before the request is sent
 
 
 @dataclass(frozen=True)
@@ -145,6 +161,7 @@ class PoliteClient:
             follow_redirects=True,
             max_redirects=self.cfg.max_redirects,
             transport=transport,
+            event_hooks={"request": [_guard_request]},  # httpx runs it for every redirect hop
         )
         self._sleep, self._clock, self._rng = sleep, clock, rng
         self._robots: dict[str, _Robots] = {}
@@ -265,6 +282,8 @@ class PoliteClient:
             resp = await self._get_with_retries(
                 f"{origin}/robots.txt", origin, self.cfg.min_interval_s, {}
             )
+        except NotPublicAddress:
+            raise  # a refusal for this call only: nothing is cached for the origin
         except NetworkError as e:
             error = f"{e.message} while fetching robots.txt"
             return _Robots(None, now, ROBOTS_NETWORK_TTL_S, error, network=True)

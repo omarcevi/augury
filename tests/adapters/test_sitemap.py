@@ -11,6 +11,7 @@ from augury.sources.http import PoliteClient, ResponseTooLarge
 from augury.sources.registry import ADAPTERS
 from augury.sources.sitemap import (
     SitemapAdapter,
+    SitemapEntry,
     matching,
     newest_first,
     page_meta,
@@ -257,3 +258,10 @@ async def test_seen_urls_are_capped_for_huge_sitemaps(http, respx_mock):
         SOURCE.model_copy(update={"recipe": recipe}), FetchState(), http
     )
     assert len(result.items) == 2 and len(result.state.seen_urls) == MAX_SEEN
+
+
+def test_patterns_only_see_the_first_512_characters_of_a_path():
+    long = SitemapEntry(f"{ORIGIN}/blog/2026/" + "a" * 600 + "-end", None)
+    assert matching([long], RECIPE) == [long]
+    tail = SitemapRecipe(sitemap_url=SITEMAP_URL, include_pattern=r"-end$")
+    assert matching([long], tail) == []
