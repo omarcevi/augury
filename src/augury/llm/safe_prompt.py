@@ -2,12 +2,14 @@
 value in a data block marked with a random token, under a notice saying the blocks are data.
 `{x:trusted}` inserts a value as it is: only for our own constants and the user's own files."""
 
+import re
 import secrets
 from string.templatelib import Interpolation, Template
 
 from augury.core.text import strip_control_chars
 
 TRUSTED = "trusted"
+_BLOCK = re.compile(r"\n<<<DATA ([0-9a-f]+)>>>\n(.*?)\n<<<END \1>>>\n", re.DOTALL)
 
 
 def data_notice(token: str) -> str:
@@ -49,3 +51,10 @@ def prompt(template: Template) -> str:
         for text, is_data in parts
     )
     return f"{data_notice(token)}\n\n{body}"
+
+
+def unfence(text: str) -> str:
+    """The data inside `text`'s fenced blocks, without the notice: for showing a fenced tool
+    result to the user (through safe_text), never for a prompt. Unfenced text comes back as is."""
+    blocks = [data for _, data in _BLOCK.findall(text)]
+    return "\n".join(blocks) if blocks else text

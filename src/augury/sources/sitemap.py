@@ -5,6 +5,7 @@ has handled are kept in FetchState.seen_urls; the first run marks the whole back
 so later runs only fetch pages that really are new."""
 
 import re
+import time
 import xml.etree.ElementTree as ET
 import xml.parsers.expat as expat
 import zlib
@@ -32,6 +33,11 @@ MAX_CHILD_SITEMAPS = 3  # a sitemap index: only the newest few children are read
 MAX_SEEN = 5000  # FetchState.seen_urls cap (JSON in sources.fetch_state_json)
 MAX_UNZIPPED = 10_000_000  # the same cap PoliteClient puts on a response
 MAX_MATCH_PATH = 512  # recipe patterns only ever see this much of a URL's path
+# Matching runs on the event loop, so its work is bounded whatever the pattern: at most this
+# many sitemap URLs, newest first, and at most this long in all. What matched by then is used.
+MAX_MATCH_ENTRIES = 2000
+MAX_MATCH_SECONDS = 1.5
+_now = time.monotonic  # looked up per call, so tests can swap it
 _GZIP_MAGIC = b"\x1f\x8b"
 _DTD_MESSAGE = "the sitemap declares a DTD or entities, which sitemaps never need"
 
@@ -137,15 +143,28 @@ def newest_first(entries: list[SitemapEntry]) -> list[SitemapEntry]:
     return [*reversed(dated), *(e for e in entries if not e.lastmod)]
 
 
-def matching(entries: list[SitemapEntry], recipe: SitemapRecipe) -> list[SitemapEntry]:
+@dataclass(frozen=True)
+class Matched:
+    entries: list[SitemapEntry]  # newest first, each URL once
+    unchecked: int = 0  # entries left unread when the work bound was hit (the oldest ones)
+
+
+def matching(entries: list[SitemapEntry], recipe: SitemapRecipe) -> Matched:
+    """The entries whose path matches the recipe, newest first, within the work bound."""
     include = re.compile(recipe.include_pattern)
     exclude = re.compile(recipe.exclude_pattern) if recipe.exclude_pattern else None
-    out: list[SitemapEntry] = []
-    for e in entries:
+    ordered = newest_first(entries)
+    out: dict[str, SitemapEntry] = {}  # a URL listed twice counts once, at its newest
+    started = _now()
+    checked = 0
+    for e in ordered:
+        if checked >= MAX_MATCH_ENTRIES or _now() - started > MAX_MATCH_SECONDS:
+            break
+        checked += 1
         path = (urlsplit(e.url).path or "/")[:MAX_MATCH_PATH]
         if include.search(path) and not (exclude and exclude.search(path)):
-            out.append(e)
-    return list({e.url: e for e in out}.values())  # a URL listed twice counts once
+            out.setdefault(e.url, e)
+    return Matched(list(out.values()), unchecked=len(ordered) - checked)
 
 
 @dataclass(frozen=True)
@@ -209,17 +228,24 @@ class SitemapAdapter:
         entries, headers = await read_entries(recipe, state, http)
         if entries is None or headers is None:
             return FetchResult(items=[], state=state, not_modified=True)
-        wanted = newest_first(matching(entries, recipe))
+        matched = matching(entries, recipe)
+        wanted = matched.entries
+        unchecked = (
+            f" in the newest {len(entries) - matched.unchecked} ({matched.unchecked} more were "
+            "not checked: the sitemap is too big or the pattern too slow)"
+            if matched.unchecked
+            else ""
+        )
         if not wanted:
             raise AdapterError(
-                f"the sitemap has 0 URLs matching {recipe.include_pattern!r} "
+                f"the sitemap has 0 URLs matching {recipe.include_pattern!r}{unchecked} "
                 "(the site or its sitemap may have changed)"
             )
         seen = set(state.seen_urls)
         new = [e for e in wanted if e.url not in seen]
         attempts = new[: recipe.max_new_per_run]
         items: list[RawItem] = []
-        skipped = 0
+        skipped = matched.unchecked  # sitemap URLs past the work bound count as skipped
         retry_later: set[str] = set()
         for rank, entry in enumerate(attempts, start=1):
             try:

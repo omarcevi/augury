@@ -47,7 +47,13 @@ class RssRecipe(BaseModel):
 
 
 MAX_PATTERN_CHARS = 200
+MAX_LONG_REPEATS = 2  # .*, [^/]+, x{0,500}: three of them in a row are cubic on a long path
+LONG_REPEAT = 100  # a repeat that can run more times than this counts as open-ended
 _REPEATS = frozenset({"MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"})
+_NESTED = "can't repeat a group that holds another repeat, like (a+)+ or ([a-z0-9-]+/?)+"
+_ALTERNATION = "can't repeat a group that holds alternatives, like (a|b)+ (use [ab]+)"
+_LONG = f"can have at most {MAX_LONG_REPEATS} open-ended repeats like .* or [^/]+"
+_QUANTIFIER = re.compile(r"[*+]|\{(\d*)(,?)(\d*)\}")
 
 
 def _subpatterns(av: object) -> Iterator[Any]:
@@ -59,25 +65,78 @@ def _subpatterns(av: object) -> Iterator[Any]:
             yield from _subpatterns(part)
 
 
-def _nested_repeat(tree: Any, inside: bool = False) -> bool:
-    r"""True when a repeat that can run more than once ({2,}, +, *) contains another repeat of
-    variable length: (a+)+, (\w+\s?)* or (a*)*, the shape that backtracks exponentially."""
+def _risk(tree: Any, inside: bool = False) -> str | None:
+    r"""What makes the pattern backtrack badly, if anything, inside a repeat that can run more
+    than once ({2,}, +, *): another repeat of variable length, like (a+)+, (\w+\s?)* or (a*)*,
+    or alternatives, like (a|a)+. Both let the engine split the same text many ways."""
     for op, av in tree:
         if str(op) in _REPEATS:
             low, high, body = av
             if inside and low != high:
+                return _NESTED
+            if risk := _risk(body, inside or high > 1):
+                return risk
+            continue
+        if inside and str(op) == "BRANCH":
+            return _ALTERNATION
+        for sub in _subpatterns(av):
+            if risk := _risk(sub, inside):
+                return risk
+    return None
+
+
+def _long_repeats(tree: Any) -> int:
+    count = 0
+    for op, av in tree:
+        if str(op) in _REPEATS and av[1] > LONG_REPEAT:
+            count += 1
+        count += sum(_long_repeats(sub) for sub in _subpatterns(av))
+    return count
+
+
+def _repeats_more_than_once(pattern: str, at: int) -> bool:
+    if not (m := _QUANTIFIER.match(pattern, at)):
+        return False
+    if m[0] in "*+":
+        return True
+    low, comma, high = m.groups()
+    return (not high or int(high) > 1) if comma else int(low or 0) > 1
+
+
+def _repeated_alternation(pattern: str) -> bool:
+    """A group holding a | that repeats, read from the source: sre turns (?:x|y) into the
+    class [xy], so the parsed tree no longer shows single-character alternatives."""
+    groups: list[bool] = []  # per open group: does it hold a |, itself or in a subgroup?
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "[":  # a class: skip to its closing ], which may come first or be escaped
+            i += 2 if pattern.startswith("[^", i) else 1
+            i += 1 if pattern.startswith("]", i) else 0
+            while i < len(pattern) and pattern[i] != "]":
+                i += 2 if pattern[i] == "\\" else 1
+        elif c == "(" and pattern.startswith("(?#", i):  # a comment runs to the first )
+            i = pattern.find(")", i) % (len(pattern) + 1)
+        elif c == "(":
+            groups.append(False)
+        elif c == "|" and groups:
+            groups[-1] = True
+        elif c == ")" and groups and groups.pop():
+            if _repeats_more_than_once(pattern, i + 1):
                 return True
-            if _nested_repeat(body, inside or high > 1):
-                return True
-        elif any(_nested_repeat(sub, inside) for sub in _subpatterns(av)):
-            return True
+            if groups:
+                groups[-1] = True
+        i += 1
     return False
 
 
 def _regex(value: str) -> str:
-    """A pattern for URL paths. Nested repeats are refused: a model writes these patterns and
-    any site supplies the paths, and one catastrophic backtrack would freeze the event loop.
-    Overlapping alternatives in a repeat, like (a|a)+, can still backtrack; they are rare."""
+    """A pattern for URL paths. Patterns that can backtrack badly are refused: a model writes
+    them, any site supplies the paths, and the match runs on the event loop. sitemap.matching
+    also bounds the work, for whatever shape this check misses."""
     if len(value) > MAX_PATTERN_CHARS:
         raise ValueError(f"a regular expression can be at most {MAX_PATTERN_CHARS} characters")
     try:
@@ -85,10 +144,14 @@ def _regex(value: str) -> str:
         tree = sre_parser.parse(value)
     except re.error as e:
         raise ValueError(f"not a valid regular expression: {e}") from e
-    if _nested_repeat(tree):
+    risk = _risk(tree)
+    if risk is None and _repeated_alternation(value):
+        risk = _ALTERNATION
+    if risk is None and _long_repeats(tree) > MAX_LONG_REPEATS:
+        risk = _LONG
+    if risk is not None:
         raise ValueError(
-            "a regular expression can't repeat a group that holds another repeat, like (a+)+ "
-            "or ([a-z0-9-]+/?)+: it can take forever to match; write it without one"
+            f"a regular expression {risk}: it can take forever to match; write it without one"
         )
     return value
 

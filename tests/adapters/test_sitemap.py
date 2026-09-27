@@ -1,4 +1,5 @@
 import gzip
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -123,7 +124,7 @@ def test_a_normal_utf16_sitemap_without_a_dtd_still_parses():
 def test_matching_filters_by_path_and_orders_newest_first():
     entries = parse_sitemap(SITEMAP, SITEMAP_URL).urls
     recipe = RECIPE.model_copy(update={"exclude_pattern": "old"})
-    urls = [e.url.removeprefix(ORIGIN) for e in newest_first(matching(entries, recipe))]
+    urls = [e.url.removeprefix(ORIGIN) for e in matching(entries, recipe).entries]
     assert urls == [
         "/blog/2026/serving-at-scale",
         "/blog/2026/speculative-decoding",
@@ -244,7 +245,7 @@ def test_the_registry_knows_sitemaps():
 
 
 async def test_seen_urls_are_capped_for_huge_sitemaps(http, respx_mock):
-    from augury.sources.sitemap import MAX_SEEN
+    from augury.sources.sitemap import MAX_MATCH_ENTRIES, MAX_SEEN
 
     urls = "".join(f"<url><loc>{ORIGIN}/blog/2026/p{i}</loc></url>" for i in range(MAX_SEEN + 50))
     big = f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'
@@ -257,11 +258,35 @@ async def test_seen_urls_are_capped_for_huge_sitemaps(http, respx_mock):
     result = await SitemapAdapter().fetch(
         SOURCE.model_copy(update={"recipe": recipe}), FetchState(), http
     )
-    assert len(result.items) == 2 and len(result.state.seen_urls) == MAX_SEEN
+    # Matching stops at MAX_MATCH_ENTRIES, below MAX_SEEN: the rest count as skipped.
+    assert len(result.items) == 2 and len(result.state.seen_urls) == MAX_MATCH_ENTRIES < MAX_SEEN
+    assert result.skipped == MAX_SEEN + 50 - MAX_MATCH_ENTRIES
 
 
 def test_patterns_only_see_the_first_512_characters_of_a_path():
     long = SitemapEntry(f"{ORIGIN}/blog/2026/" + "a" * 600 + "-end", None)
-    assert matching([long], RECIPE) == [long]
+    assert matching([long], RECIPE).entries == [long]
     tail = SitemapRecipe(sitemap_url=SITEMAP_URL, include_pattern=r"-end$")
-    assert matching([long], tail) == []
+    assert matching([long], tail).entries == []
+
+
+def test_matching_stops_after_2000_entries_newest_first():
+    from augury.sources.sitemap import MAX_MATCH_ENTRIES
+
+    entries = [SitemapEntry(f"{ORIGIN}/blog/2026/p{i}", None) for i in range(5000)]
+    entries.append(SitemapEntry(f"{ORIGIN}/blog/2026/newest", datetime(2026, 9, 25, tzinfo=UTC)))
+    matched = matching(entries, RECIPE)
+    assert len(matched.entries) == MAX_MATCH_ENTRIES == 2000 and matched.unchecked == 3001
+    assert [e.url.removeprefix(ORIGIN) for e in matched.entries[:2]] == [
+        "/blog/2026/newest",  # dated entries first, so the cut drops the oldest
+        "/blog/2026/p0",
+    ]
+
+
+def test_matching_stops_when_it_takes_too_long(monkeypatch):
+    ticks = iter(range(1_000_000))
+    monkeypatch.setattr("augury.sources.sitemap._now", lambda: next(ticks) * 0.1)  # 0.1 s/URL
+    entries = [SitemapEntry(f"{ORIGIN}/blog/2026/p{i}", None) for i in range(5000)]
+    matched = matching(entries, RECIPE)
+    assert 10 <= len(matched.entries) <= 16  # about 1.5 s worth
+    assert matched.unchecked == 5000 - len(matched.entries)

@@ -30,6 +30,8 @@ from augury.agents.discovery.models import (
     recipe_hash,
 )
 from augury.agents.discovery.tools import VerifiedRecipes
+from augury.core.text import strip_control_chars
+from augury.llm.safe_prompt import unfence
 
 MAX_TOOL_CALLS = 20
 MAX_SECONDS = 90.0
@@ -132,7 +134,10 @@ class ToolGuard:
         detail = ""
         if isinstance(tool_response, dict):
             if not ok:
-                detail = str(tool_response.get("error", ""))[:160]
+                # The reason itself, not the fence notice around it: the model's copy stays
+                # fenced, and the user's progress line is shown through safe_text.
+                error = unfence(str(tool_response.get("error", "")))
+                detail = " ".join(strip_control_chars(error).split())[:160]
             elif "items_found" in tool_response:
                 detail = f"{tool_response['items_found']} items"
             elif "valid_feeds" in tool_response:
