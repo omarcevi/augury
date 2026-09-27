@@ -19,6 +19,7 @@ dependencies = [
     "pylatexenc>=2.11",
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
+    "soupsieve>=2.10",
     "sqlite-vec>=0.1.9",
     "textual>=8.2.8",
     "tomli-w>=1.2.0",

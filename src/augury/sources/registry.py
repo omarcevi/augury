@@ -3,6 +3,7 @@ from augury.sources.base import Adapter, AdapterError
 from augury.sources.hf_blog import HfBlogAdapter
 from augury.sources.hf_community import HfCommunityAdapter
 from augury.sources.hf_papers import HfPapersAdapter
+from augury.sources.html_listing import HtmlListingAdapter
 from augury.sources.rss import RssAdapter
 from augury.sources.sitemap import SitemapAdapter
 
@@ -14,6 +15,7 @@ ADAPTERS: dict[str, Adapter] = {
         HfCommunityAdapter(),
         RssAdapter(),
         SitemapAdapter(),
+        HtmlListingAdapter(),
     )
 }
 

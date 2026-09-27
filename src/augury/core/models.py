@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
+import soupsieve
 from pydantic import AfterValidator, BaseModel, Field, TypeAdapter
 
 MAX_SUMMARY_CHARS = 1000
@@ -66,8 +67,41 @@ class SitemapRecipe(BaseModel):
     max_new_per_run: int = Field(default=20, ge=1, le=100)
 
 
+def _selector(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("a CSS selector can't be empty")
+    try:
+        soupsieve.compile(value)
+    except soupsieve.SelectorSyntaxError as e:
+        raise ValueError(f"not a valid CSS selector: {e}") from e
+    return value
+
+
+Selector = Annotated[str, AfterValidator(_selector)]
+
+
+class HtmlListingRecipe(BaseModel):
+    """A listing page read with CSS selectors (spec §4.3): item_selector finds each post, and
+    the others run inside it. The discovery agent picks them; test_recipe proves they work."""
+
+    type: Literal["html_listing"] = "html_listing"
+    recipe_version: Literal[1] = 1
+    listing_url: HttpUrlStr
+    item_selector: Selector
+    link_selector: Selector
+    title_selector: Selector
+    date_selector: Selector | None = None
+    date_format: str | None = None  # strptime format; ISO 8601 is tried without one
+
+
 Recipe = Annotated[
-    HfPapersRecipe | HfBlogRecipe | HfCommunityRecipe | RssRecipe | SitemapRecipe,
+    HfPapersRecipe
+    | HfBlogRecipe
+    | HfCommunityRecipe
+    | RssRecipe
+    | SitemapRecipe
+    | HtmlListingRecipe,
     Field(discriminator="type"),
 ]
 RECIPE_ADAPTER: TypeAdapter[Recipe] = TypeAdapter(Recipe)
