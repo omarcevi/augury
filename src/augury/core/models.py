@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
@@ -42,8 +43,32 @@ class RssRecipe(BaseModel):
     feed_url: HttpUrlStr
 
 
+def _regex(value: str) -> str:
+    try:
+        re.compile(value)
+    except re.error as e:
+        raise ValueError(f"not a valid regular expression: {e}") from e
+    return value
+
+
+Regex = Annotated[str, AfterValidator(_regex)]
+
+
+class SitemapRecipe(BaseModel):
+    """A sitemap's URLs whose path matches include_pattern (spec §4.3). Sitemaps carry no
+    titles, so each new URL's page is read for og:title / og:description / published time."""
+
+    type: Literal["sitemap"] = "sitemap"
+    recipe_version: Literal[1] = 1
+    sitemap_url: HttpUrlStr
+    include_pattern: Regex
+    exclude_pattern: Regex | None = None
+    max_new_per_run: int = Field(default=20, ge=1, le=100)
+
+
 Recipe = Annotated[
-    HfPapersRecipe | HfBlogRecipe | HfCommunityRecipe | RssRecipe, Field(discriminator="type")
+    HfPapersRecipe | HfBlogRecipe | HfCommunityRecipe | RssRecipe | SitemapRecipe,
+    Field(discriminator="type"),
 ]
 RECIPE_ADAPTER: TypeAdapter[Recipe] = TypeAdapter(Recipe)
 
@@ -83,6 +108,8 @@ class RawItem(BaseModel):
 class FetchState(BaseModel):
     etag: str | None = None
     last_modified: str | None = None
+    # sitemap: the matching URLs already handled, so only new ones cost a page fetch
+    seen_urls: list[str] = Field(default_factory=list)
 
 
 class FetchResult(BaseModel):
