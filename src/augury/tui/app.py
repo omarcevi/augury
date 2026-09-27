@@ -48,6 +48,8 @@ from augury.llm.probes import apply_probes, load_probe_results
 from augury.llm.resolver import Resolver, RoleStatus, default_resolver, role_statuses
 from augury.rag.cluster import cluster_siblings
 from augury.rag.guard import vector_problem
+from augury.rag.ingest import content_needs_ingest, ingest_content
+from augury.rag.related import related_items
 from augury.rag.search import SearchFilters, VectorsUnavailable, item_order, search
 from augury.sources.http import HttpClient, PoliteClient
 from augury.tui.clipboard import copy_and_tell, copy_selection
@@ -555,6 +557,7 @@ class AuguryApp(App[None]):
         self.mode = "READ"
         # MarkdownViewer itself can't take focus; its document can, so the reader keys work.
         viewer.document.focus()
+        self.query_one(ReaderPane).show_related([])  # the last item's, until this one's body
         self.load_content(item_id, restored=restored)
         # The cached TL;DR (or none) at once; a new one comes only after the body (load_summary).
         if (cached := self.summarizer.cached(item_id)) is None and self._summarizing == item_id:
@@ -582,6 +585,7 @@ class AuguryApp(App[None]):
             item, self.query_one(ItemsTable).rows_by_key.get(item_id), self._also(item_id)
         )
         reader.show_status("Extracting…", "dim")
+        self.show_related(item_id)  # M4: stored vectors only, so before (and whatever) extraction
         # Awaited: Markdown resets its cached table of contents when an update starts, so an
         # update still running when the body arrives would cache a contents list without it.
         await reader.show_summary(item)
@@ -616,6 +620,7 @@ class AuguryApp(App[None]):
             reader.show_status("")
             await reader.show_markdown(content.body_md)
             if self.is_running:
+                self.index_opened(item_id)  # M4: the content tier (spec §6.1)
                 self._reanchor()  # back to the saved position once the body is laid out
                 # F28: a TL;DR on Enter only. P2's reopen at launch isn't one, so it shows a
                 # cached TL;DR (open_item) and never calls the model (spec §8.3.1). A collapsed
@@ -717,6 +722,62 @@ class AuguryApp(App[None]):
         self._reanchor()  # the box's height changed the article's, so keep the reading position
         if self.session is not None:  # saved at once, like the theme; restored per remember_state
             self.session.update(tldr_collapsed=collapsed)
+
+    def show_related(self, item_id: str) -> None:
+        """M4 (spec §6.5, §11): the Related panel for the open item. Off without a usable
+        index; the reason shows only when the user can act on it (`augury reindex`)."""
+        problem = vector_problem(self.conn, self.embedder, self.no_embedder)
+        reader = self.query_one(ReaderPane)
+        if problem is None:
+            reader.show_related(related_items(self.conn, item_id))
+        elif "augury reindex" in problem:
+            reader.show_related([], f"Related is off: {problem}")
+        else:  # no key or no embedder: the reader stays as it was before M4
+            reader.show_related([])
+
+    @work(exclusive=True, group="index")
+    async def index_opened(self, item_id: str) -> None:
+        """M4 (spec §6.1): an opened item's full text becomes content passages, embedded as an
+        `embed` run under the budget. Opening another item cancels this one; it is redone on
+        the next open. A failure here never reaches the reader."""
+        item = ItemsRepo(self.conn).get(item_id)
+        content = ContentsRepo(self.conn).get(item_id)
+        if item is None or content is None:
+            return
+        usable = vector_problem(self.conn, self.embedder, self.no_embedder) is None
+        if not content_needs_ingest(self.conn, item_id, content, vectors=usable):
+            return
+        runs = RunsRepo(self.conn)
+        run_id = runs.start("embed", now=self.now())
+        meter = EmbedMeter(self.conn, self.config, run_id, self.now)
+        try:
+            stats = await ingest_content(
+                self.conn,
+                item,
+                content,
+                embedder=self.embedder,
+                meter=meter,
+                now=self.now,
+                unavailable=self.no_embedder,
+            )
+        except Exception as exc:
+            runs.finish(run_id, "failed", now=self.now(), error=describe(exc, 300))
+            self.log.error(f"reader: indexing {item_id} failed\n{traceback.format_exc()}")
+            return
+        except BaseException:
+            runs.finish(run_id, "interrupted", now=self.now())
+            raise
+        status = "partial" if stats.stopped or stats.error else "ok"
+        error = stats.stopped or stats.error
+        runs.finish(
+            run_id,
+            status,
+            now=self.now(),
+            error=error,
+            stats={"item_id": item_id, "passages": stats.content},
+        )
+        if self.is_running and stats.embedded:
+            self.refresh_health()  # today's spend
 
     def _also(self, item_id: str) -> list[str]:
         """M4: the sources that also cover this item (its cluster), each once. Local only."""

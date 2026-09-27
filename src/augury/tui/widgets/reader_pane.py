@@ -18,6 +18,7 @@ from textual.widgets.markdown import MarkdownFence
 from augury.core.db.summaries_repo import Summary
 from augury.core.models import Item
 from augury.core.text import strip_control_chars
+from augury.rag.related import RelatedItem
 from augury.tui.clipboard import copy_and_tell
 from augury.tui.digest_view import breakdown_line
 from augury.tui.query import ItemRow
@@ -155,6 +156,9 @@ class ReaderPane(Vertical):
             tldr.display = False
             yield tldr
         yield SafeMarkdownViewer("", show_table_of_contents=False, id="reader-doc")
+        related = Static(id="reader-related")  # M4 (spec §6.5), under the article
+        related.border_title = "Related"
+        yield related
 
     @property
     def viewer(self) -> MarkdownViewer:
@@ -192,6 +196,24 @@ class ReaderPane(Vertical):
             header.append("\n")
             header.append_text(text(line, "dim"))
         self.query_one("#reader-header", Static).update(header)
+
+    def show_related(self, items: Sequence[RelatedItem], message: str = "") -> None:
+        """M4: up to five related items (titles are fetched text: shown literally), a one-line
+        reason it is off, or nothing at all (the panel hides)."""
+        panel = self.query_one("#reader-related", Static)
+        if not items and not message:
+            panel.display = False
+            return
+        body = Text()
+        if not items:
+            body.append_text(text(message, "dim"))
+        for n, item in enumerate(items):
+            if n:
+                body.append("\n")
+            body.append_text(text(f"• {item.title}", one_line=True))
+            body.append_text(text(f"  {item.source_id} · {item.similarity:.2f}", "dim"))
+        panel.update(body)
+        panel.display = True
 
     def show_status(self, message: str, style: str = "") -> None:
         self.status_message = message
@@ -250,6 +272,7 @@ class ReaderPane(Vertical):
     def preview(self, item: Item, row: ItemRow | None, also: Sequence[str] = ()) -> None:
         """Database only: moving the cursor must never cost a request."""
         self.show_header(item, row, also)
+        self.show_related([])  # M4: shown for an opened item only
         self.show_status("Enter to read · o to open in your browser", "dim")
         self.show_summary(item)
 
