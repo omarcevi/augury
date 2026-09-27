@@ -14,7 +14,7 @@ from augury.core.secrets import env_file_is_private
 from augury.llm.budget import budget_problem, today_spend
 from augury.llm.pricing import price_for
 from augury.llm.probes import ProbeResult, probe_role, save_probe_results
-from augury.llm.resolver import Resolver, role_statuses
+from augury.llm.resolver import ModelUnavailable, Resolver, role_statuses
 from augury.sources.http import HttpClient, HttpError, NetworkError
 
 
@@ -183,3 +183,27 @@ async def probe_models(
     if results:
         save_probe_results(paths.probe_cache_file, results.values())
     return results
+
+
+def check_search(
+    config: Config, resolver: Resolver, env: Mapping[str, str] | None = None
+) -> list[Check]:
+    """Which web search discovery will use (spec §5.6), and whether it can run. Offline."""
+    from augury.agents.discovery.search import (  # lazy: plain doctor runs stay quick
+        SearchUnavailable,
+        make_searcher,
+        resolve_provider,
+    )
+
+    try:
+        smart = resolver("smart", "discovery")
+    except ModelUnavailable:
+        return []  # the smart check above already says why; no discovery, no search
+    try:
+        provider = resolve_provider(config.search, smart)
+        if provider != "gemini":
+            make_searcher(provider, config.search, env)
+    except SearchUnavailable as e:
+        return [Check("search", False, str(e), required=False)]
+    how = " (auto)" if config.search.provider == "auto" else ""
+    return [Check("search", True, f"{provider}{how}", required=False)]

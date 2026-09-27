@@ -71,6 +71,7 @@ def doctor(offline: bool) -> None:
         if not offline:
             probes = asyncio.run(doctor_checks.probe_models(paths, config, resolver))
         checks += doctor_checks.check_ai(paths, config, resolver, probes)
+        checks += doctor_checks.check_search(config, resolver)
     if not offline:
 
         async def network() -> list[doctor_checks.Check]:

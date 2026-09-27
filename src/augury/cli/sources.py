@@ -3,6 +3,15 @@ import sqlite3
 
 import click
 
+from augury.agents.discovery.agent import (
+    DiscoveryDeps,
+    DiscoveryOutcome,
+    classify_input,
+    discover,
+)
+from augury.agents.discovery.confirm import add_candidates
+from augury.agents.discovery.guards import Progress
+from augury.agents.discovery.models import Candidate, primary_url
 from augury.cli.output import safe
 from augury.core.clock import utcnow
 from augury.core.config import Config, ConfigError, load_config
@@ -10,6 +19,8 @@ from augury.core.db.open import open_db
 from augury.core.db.sources_repo import BuiltinSourceError, SourcesRepo
 from augury.core.models import FetchState, Source
 from augury.core.paths import app_paths
+from augury.llm.probes import load_probe_results
+from augury.llm.resolver import default_resolver
 from augury.sources.base import AdapterError
 from augury.sources.http import HttpError, PoliteClient
 from augury.sources.probe import ProbeResult, build_feed_source, page_url, probe_url
@@ -70,59 +81,158 @@ def add_feed_source(
 
 
 @sources_group.command("add")
-@click.argument("url", required=False)
+@click.argument("target", metavar="URL_OR_NAME", required=False)
 @click.option("--rss", "feed_url", metavar="URL", help="Add this RSS/Atom feed directly.")
 @click.option("--name", help="Display name (defaults to the feed's title).")
-@click.option("--yes", "-y", is_flag=True, help="Don't ask; take the first valid feed.")
-def add(url: str | None, feed_url: str | None, name: str | None, yes: bool) -> None:
-    """Add a source from a blog's page URL (its feed is found for you) or --rss URL."""
-    if bool(url) == bool(feed_url):
-        raise click.UsageError("pass either a page URL or --rss URL")
-    try:
-        url, feed_url = (page_url(u) if u else None for u in (url, feed_url))
-    except ValueError as e:
-        raise click.ClickException(safe(e)) from e
+@click.option("--yes", "-y", is_flag=True, help="Don't ask; take the first usable candidate.")
+def add(target: str | None, feed_url: str | None, name: str | None, yes: bool) -> None:
+    """Add a source from a blog's URL (its feed is found for you), a publication's name
+    ("google tech blogs": the discovery agent finds and tests candidates), or --rss URL."""
+    if bool(target) == bool(feed_url):
+        raise click.UsageError("pass either a URL or name, or --rss URL")
     config, conn = _open()
     try:
-        repo = SourcesRepo(conn)
         if feed_url:
-            if existing := repo.find_by_feed_url(feed_url):
-                raise click.ClickException(safe(f"that feed is already added as {existing!r}"))
-
-            async def inspect() -> FeedInfo:
-                async with PoliteClient(config.http) as http:
-                    return await inspect_feed(feed_url, http)
-
+            _add_rss(conn, config, feed_url, name, yes)
+            return
+        assert target is not None
+        kind, value = classify_input(target)
+        if kind == "url":
             try:
-                info = asyncio.run(inspect())
-            except (HttpError, AdapterError) as e:
+                value = page_url(value)
+            except ValueError as e:
                 raise click.ClickException(safe(e)) from e
-            added_via = "manual"
-        else:
-            assert url is not None
-
-            async def probe() -> ProbeResult:
-                async with PoliteClient(config.http) as http:
-                    return await probe_url(url, http, now=utcnow())
-
-            try:
-                result = asyncio.run(probe())
-            except HttpError as e:
-                raise click.ClickException(safe(e)) from e
-            if not result.candidates:
+            result = _probe(config, value)
+            if result is not None and result.candidates:
+                info = _choose(result.candidates, yes)
+                if existing := SourcesRepo(conn).find_by_feed_url(info.feed_url):
+                    raise click.ClickException(safe(f"that feed is already added as {existing!r}"))
+                add_feed_source(conn, info, name=name, added_via="url_probe", yes=yes)
+                return
+            if result is not None:
                 for attempt in result.attempts:
                     click.echo(safe(f"  tried {attempt.url}: {attempt.outcome}"))
-                raise click.ClickException(
-                    "no usable feed found on that page. If you know the feed URL, use --rss; "
-                    "finding sources by name arrives in M3."
-                )
-            info = _choose(result.candidates, yes)
-            added_via = "url_probe"
-        if existing := repo.find_by_feed_url(info.feed_url):
-            raise click.ClickException(safe(f"that feed is already added as {existing!r}"))
-        add_feed_source(conn, info, name=name, added_via=added_via, yes=yes)
+            click.echo("No feed on that page. Asking the discovery agent…")
+        else:
+            result = None
+        _discover_and_add(conn, config, value, yes=yes, probe=result)
     finally:
         conn.close()
+
+
+def _add_rss(
+    conn: sqlite3.Connection, config: Config, feed_url: str, name: str | None, yes: bool
+) -> None:
+    try:
+        feed_url = page_url(feed_url)
+    except ValueError as e:
+        raise click.ClickException(safe(e)) from e
+    repo = SourcesRepo(conn)
+    if existing := repo.find_by_feed_url(feed_url):
+        raise click.ClickException(safe(f"that feed is already added as {existing!r}"))
+
+    async def inspect() -> FeedInfo:
+        async with PoliteClient(config.http) as http:
+            return await inspect_feed(feed_url, http)
+
+    try:
+        info = asyncio.run(inspect())
+    except (HttpError, AdapterError) as e:
+        raise click.ClickException(safe(e)) from e
+    if existing := repo.find_by_feed_url(info.feed_url):
+        raise click.ClickException(safe(f"that feed is already added as {existing!r}"))
+    add_feed_source(conn, info, name=name, added_via="manual", yes=yes)
+
+
+def _probe(config: Config, url: str) -> ProbeResult | None:
+    async def probe() -> ProbeResult:
+        async with PoliteClient(config.http) as http:
+            return await probe_url(url, http, now=utcnow())
+
+    try:
+        return asyncio.run(probe())
+    except HttpError as e:
+        click.echo(safe(f"  couldn't read {url}: {e}"))
+        return None
+
+
+def show_progress(line: Progress) -> None:
+    if line.done:
+        mark = "✓" if line.ok else "✗"
+        click.echo(safe(f"    {mark} {line.detail}" if line.detail else f"    {mark}"))
+    else:
+        click.echo(safe(f"  → {line.tool} {line.detail}".rstrip()))
+
+
+def describe_candidate(i: int, c: Candidate) -> list[str]:
+    dup = f"  [duplicate of {c.duplicate_of}]" if c.duplicate_of else ""
+    lines = [f"{i}. {c.name}  ({c.recipe.type}: {primary_url(c.recipe)}){dup}"]
+    if c.note:
+        lines.append(f"   {c.note}  (confidence {c.confidence:.0%})")
+    lines += [f"   · {s.title}" for s in c.sample_items]
+    return [safe(line) for line in lines]
+
+
+def _discover_and_add(
+    conn: sqlite3.Connection,
+    config: Config,
+    query: str,
+    *,
+    yes: bool,
+    probe: ProbeResult | None,
+) -> None:
+    paths = app_paths()
+
+    async def go() -> DiscoveryOutcome:
+        async with PoliteClient(config.http) as http:
+            deps = DiscoveryDeps(
+                conn=conn,
+                http=http,
+                config=config,
+                resolver=default_resolver(config),
+                sessions_db=paths.sessions_db_file,
+                now=utcnow,
+                probes=load_probe_results(paths.probe_cache_file),
+            )
+            return await discover(
+                query, deps, on_progress=show_progress, probe=probe, skip_probe=probe is None
+            )
+
+    outcome = asyncio.run(go())
+    if outcome.via == "none":  # no agent (no smart model, a failed tool probe, the budget)
+        raise click.ClickException(
+            safe(f"{outcome.explanation}. If you know the feed URL, use --rss.")
+        )
+    if outcome.explanation:
+        click.echo(safe(f"Note: {outcome.explanation}"))
+    usable = [c for c in outcome.candidates if not c.duplicate]
+    for i, c in enumerate(outcome.candidates, start=1):
+        click.echo("\n".join(describe_candidate(i, c)))
+    if not usable:
+        raise click.ClickException("no new source to add")
+    if yes:
+        chosen = usable[:1]
+    else:
+        default = str(outcome.candidates.index(usable[0]) + 1)
+        answer = click.prompt("Add which? (numbers, comma-separated; 0 for none)", default=default)
+        chosen = _pick(answer, outcome.candidates)
+    added = add_candidates(conn, chosen, run_id=outcome.run_id, now=utcnow())
+    for source in added:
+        click.echo(safe(f"Added {source.id}. It will be fetched on the next scout."))
+    if not added:
+        click.echo("Nothing added.")
+
+
+def _pick(answer: str, candidates: list[Candidate]) -> list[Candidate]:
+    chosen: list[Candidate] = []
+    for part in answer.replace(" ", "").split(","):
+        if not part or part == "0":
+            continue
+        if not part.isdigit() or not 1 <= int(part) <= len(candidates):
+            raise click.ClickException(f"{part!r} is not one of 1-{len(candidates)}")
+        if (c := candidates[int(part) - 1]) not in chosen:
+            chosen.append(c)
+    return chosen
 
 
 def _choose(candidates: list[FeedInfo], yes: bool) -> FeedInfo:
