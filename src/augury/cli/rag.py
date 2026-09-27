@@ -1,17 +1,34 @@
 """M4's commands (spec §10): `augury reindex` and `augury eval retrieval`."""
 
 import asyncio
+import sqlite3
+from pathlib import Path
 
 import click
 
 from augury.cli.output import safe
 from augury.core.clock import utcnow
-from augury.core.config import ConfigError, load_config
+from augury.core.config import Config, ConfigError, load_config
+from augury.core.db.chunks_repo import ChunksRepo
+from augury.core.db.connect import connect, transaction
 from augury.core.db.open import open_db
+from augury.core.db.runs_repo import RunsRepo
 from augury.core.lock import ScoutAlreadyRunning, ScoutLock
 from augury.core.paths import app_paths
-from augury.llm.embedder import Embedder, EmbedderUnavailable, resolve_embedder
+from augury.llm.budget import BudgetExceeded
+from augury.llm.embedder import (
+    Embedder,
+    EmbedderUnavailable,
+    EmbedMeter,
+    HashEmbedder,
+    resolve_embedder,
+)
+from augury.rag.eval import EvalReport, NotEnoughPairs, format_table, run_eval, save
+from augury.rag.ingest import ingest_archive
 from augury.rag.reindex import reindex as reindex_chunks
+from augury.rag.search import VectorsUnavailable
+
+FAKE_DIMENSIONS = 64
 
 
 def configured_embedder() -> tuple[Embedder | None, str | None]:
@@ -70,3 +87,77 @@ def reindex(everything: bool) -> None:
             " run `augury reindex` again to carry on."
         )
         raise SystemExit(1)
+
+
+@click.group("eval")
+def eval_group() -> None:
+    """Measure augury's retrieval (spec §6.6)."""
+
+
+async def _fake_index(
+    conn: sqlite3.Connection, config: Config
+) -> tuple[sqlite3.Connection, Embedder]:
+    """A scratch in-memory copy whose archive is re-embedded by the hash embedder: the real
+    database and its index are never touched, and nothing is spent."""
+    scratch = connect(":memory:")
+    conn.backup(scratch)
+    with transaction(scratch):
+        ChunksRepo(scratch).clear_vectors()
+    embedder = HashEmbedder(FAKE_DIMENSIONS)
+    run_id = RunsRepo(scratch).start("embed", now=utcnow())
+    meter = EmbedMeter(scratch, config, run_id, utcnow)
+    await ingest_archive(scratch, embedder=embedder, meter=meter, now=utcnow)
+    return scratch, embedder
+
+
+async def _evaluate(
+    conn: sqlite3.Connection, config: Config, embedder: Embedder | None, fake: bool, why: str | None
+) -> EvalReport:
+    if fake:
+        conn, embedder = await _fake_index(conn, config)
+    if embedder is None:
+        raise click.ClickException(
+            f"the eval needs an embedder: {why}. `--fake-embedder` checks the code path offline"
+        )
+    runs = RunsRepo(conn)
+    run_id = runs.start("embed", now=utcnow())
+    try:
+        report = await run_eval(
+            conn, embedder=embedder, meter=EmbedMeter(conn, config, run_id, utcnow), now=utcnow()
+        )
+    except (NotEnoughPairs, VectorsUnavailable, BudgetExceeded) as e:
+        runs.finish(run_id, "failed", now=utcnow(), error=str(e))
+        raise click.ClickException(str(e)) from e
+    runs.finish(run_id, "ok", now=utcnow(), stats={"eval": report.model_dump(mode="json")})
+    return report
+
+
+@eval_group.command("retrieval")
+@click.option(
+    "--fake-embedder",
+    is_flag=True,
+    help="Offline and free: a hash embedder over a scratch copy (checks the code, not quality).",
+)
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("evals/results"),
+    show_default=True,
+    help="Folder for the JSON results.",
+)
+def retrieval(fake_embedder: bool, out_dir: Path) -> None:
+    """recall@1/5/10 and MRR for keyword, vector and hybrid search on blog↔paper pairs."""
+    paths = app_paths()
+    try:
+        config = load_config(paths)
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+    embedder, why = (None, None) if fake_embedder else configured_embedder()
+    conn = open_db(paths)
+    try:
+        report = asyncio.run(_evaluate(conn, config, embedder, fake_embedder, why))
+    finally:
+        conn.close()
+    click.echo(format_table(report))
+    click.echo(f"Saved {save(report, out_dir)}")

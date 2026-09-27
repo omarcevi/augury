@@ -320,9 +320,11 @@ def schedule_status() -> None:
 
 
 from augury.cli.dev import dev_group  # noqa: E402
+from augury.cli.rag import eval_group  # noqa: E402
 from augury.cli.rag import reindex as reindex_command  # noqa: E402
 from augury.cli.sources import sources_group  # noqa: E402
 
 main.add_command(sources_group)
 main.add_command(dev_group)
 main.add_command(reindex_command)
+main.add_command(eval_group)
