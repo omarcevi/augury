@@ -22,7 +22,7 @@ from augury.core.models import Content, Item
 from augury.llm.embedder import EMBED_BATCH, Embedder, EmbedMeter
 from augury.rag.chunker import CHUNKER_VERSION, archive_text, chunk_markdown, context_header
 from augury.rag.cluster import update_clusters
-from augury.rag.guard import vector_problem
+from augury.rag.guard import embed_problem
 
 
 class IngestStats(BaseModel):
@@ -116,7 +116,7 @@ async def ingest_archive(
     """The scout's archive tier: every item's one passage, embedded 100 at a time. With
     `cluster_threshold`, each batch is then clustered (spec §6.5)."""
     stats = IngestStats()
-    problem = vector_problem(conn, embedder, unavailable)
+    problem = embed_problem(conn, embedder, unavailable)
     _mark(stats, problem)
     usable = embedder if problem is None else None
     repo = ChunksRepo(conn)
@@ -182,7 +182,7 @@ async def ingest_content(
     stats = IngestStats()
     if content.status != "ok" or not content.body_md.strip():
         return stats
-    problem = vector_problem(conn, embedder, unavailable)
+    problem = embed_problem(conn, embedder, unavailable)
     _mark(stats, problem)
     usable = embedder if problem is None else None
     if not content_needs_ingest(conn, item.id, content, vectors=usable is not None):

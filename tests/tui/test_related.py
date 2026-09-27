@@ -83,3 +83,22 @@ async def test_a_mismatched_index_says_to_reindex(make_app):
         await pilot.press("enter")
         await until(pilot, lambda: _panel(app).display)
         assert "augury reindex" in str(_panel(app).content)
+
+
+async def test_a_five_member_cluster_still_leaves_five_related(paths):
+    from augury.core.db.open import open_db
+
+    conn = open_db(paths, now=NOW)
+    story = "sparse attention kernels for long context"
+    ids = add_items(
+        conn,
+        [(f"Sparse attention kernels {n}", story) for n in range(5)]
+        + [(f"Attention serving {n}", "long context attention at scale") for n in range(5)],
+        now=NOW,
+    )
+    meter = EmbedMeter(conn, Config(), RunsRepo(conn).start("scout", now=NOW), lambda: NOW)
+    await ingest_archive(conn, embedder=HashEmbedder(64), meter=meter, now=lambda: NOW)
+    cluster = ids[:5]  # the item and 4 siblings: its nearest vectors
+    conn.execute("UPDATE items SET cluster_id = ? WHERE id IN (?, ?, ?, ?, ?)", (ids[0], *cluster))
+    related = [r.item_id for r in related_items(conn, ids[0])]
+    assert sorted(related) == sorted(ids[5:])  # 5, none of them "Also covered by"

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from augury.agents.llm_step import describe
 from augury.cli.output import safe
 from augury.core.clock import utcnow
 from augury.core.config import Config, ConfigError, load_config
@@ -68,6 +69,11 @@ def reindex(everything: bool) -> None:
                 unavailable=why,
             )
         )
+    except Exception as e:  # the provider (down, 401, 429) or a bad reply: the run is `failed`
+        raise click.ClickException(
+            f"reindex stopped: {safe(describe(e, 300))}. The passages embedded so far are kept;"
+            " run `augury reindex` again to carry on."
+        ) from e
     finally:
         lock.release()
         conn.close()
@@ -128,6 +134,14 @@ async def _evaluate(
     except (NotEnoughPairs, VectorsUnavailable, BudgetExceeded) as e:
         runs.finish(run_id, "failed", now=utcnow(), error=str(e))
         raise click.ClickException(str(e)) from e
+    except Exception as e:  # the provider (down, 401, 429) or a bad reply
+        runs.finish(run_id, "failed", now=utcnow(), error=describe(e, 300))
+        raise click.ClickException(
+            f"the eval stopped: {safe(describe(e, 300))}; run it again"
+        ) from e
+    except BaseException:  # Ctrl-C: never leave the run `running`
+        runs.finish(run_id, "interrupted", now=utcnow())
+        raise
     runs.finish(run_id, "ok", now=utcnow(), stats={"eval": report.model_dump(mode="json")})
     return report
 

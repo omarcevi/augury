@@ -1,12 +1,16 @@
 import pytest
 
 from augury.core.config import BudgetConfig, Config
+from augury.core.db.chunks_repo import ChunksRepo, vec_dimensions
 from augury.core.db.open import open_db
 from augury.core.db.runs_repo import RunsRepo
 from augury.llm.budget import BudgetExceeded
 from augury.llm.embedder import EmbedMeter, HashEmbedder
+from augury.rag.cluster import archive_vector
+from augury.rag.guard import NO_VECTORS_YET, embed_problem, vector_problem
 from augury.rag.ingest import ingest_archive
 from augury.rag.search import (
+    Mode,
     SearchFilters,
     VectorsUnavailable,
     item_order,
@@ -14,6 +18,7 @@ from augury.rag.search import (
     match_query,
     rrf,
     search,
+    vec_ranking,
 )
 from tests.rag.helpers import NOW, add_items
 
@@ -136,3 +141,37 @@ async def test_item_and_window_filters(paths):
     skip = SearchFilters(exclude_items=frozenset({ids[0]}))
     hits = await search(conn, "retrieval", skip, embedder=embedder, meter=_meter(conn))
     assert item_order(hits) == [ids[1]]
+
+
+async def test_before_any_vector_is_stored_search_refuses_without_spending(paths):
+    conn = open_db(paths, now=NOW)
+    [item] = add_items(conn, [("Mixture of experts", "routing")])
+    await ingest_archive(conn, embedder=None, meter=None, now=lambda: NOW)  # keyword-only
+    assert vec_dimensions(conn) is None  # an M3 database, or no embedding ever succeeded
+    embedder = HashEmbedder(16)
+    assert embed_problem(conn, embedder) is None  # ingestion may still make the first vector
+    assert vector_problem(conn, embedder) == NO_VECTORS_YET
+    assert archive_vector(conn, item) is None
+    assert vec_ranking(conn, [1.0] * 16, SearchFilters()) == []
+    modes: tuple[Mode, ...] = ("hybrid", "vector")
+    for mode in modes:
+        with pytest.raises(VectorsUnavailable, match="no passage has a vector yet"):
+            await search(
+                conn, "experts", SearchFilters(), embedder=embedder, meter=_meter(conn), mode=mode
+            )
+    assert embedder.calls == []  # refused before the query embedding: nothing spent
+    assert item_order(keyword_search(conn, "experts", SearchFilters())) == [item]
+
+
+async def test_excluded_items_never_shrink_the_top_k(paths):
+    conn = open_db(paths, now=NOW)
+    ids = add_items(conn, [(f"Sparse attention {i}", "long context kernels") for i in range(8)])
+    await _index(conn, HashEmbedder(64))
+    found = archive_vector(conn, ids[0])
+    assert found is not None
+    skip = frozenset(ids[:3])
+    hits = vec_ranking(
+        conn, found[0], SearchFilters(collections=("archive",), exclude_items=skip), 5
+    )
+    items = [c.item_id for c in ChunksRepo(conn).get_many([i for i, _ in hits]).values()]
+    assert len(hits) == 5 and not skip & set(items)  # sqlite-vec drops NOT IN after the top k

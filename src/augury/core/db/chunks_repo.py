@@ -79,6 +79,13 @@ def vec_dimensions(conn: sqlite3.Connection) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def has_vectors(conn: sqlite3.Connection) -> bool:
+    """chunks_vec exists and can be read. It is made by the first vector write (Ruling R1), so
+    an M3 database, or one where no embedding has succeeded yet, has none: every reader of the
+    vector index checks this first and finds nothing, rather than `no such table`."""
+    return vec_loaded(conn) and vec_dimensions(conn) is not None
+
+
 def create_vec_table(conn: sqlite3.Connection, dimensions: int) -> None:
     # Metadata columns are filterable inside the KNN query (spec §6.4); + columns are stored only.
     conn.execute(

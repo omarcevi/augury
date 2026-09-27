@@ -48,7 +48,7 @@ from augury.llm.embedder import Embedder, EmbedderUnavailable, EmbedMeter, resol
 from augury.llm.probes import apply_probes, load_probe_results
 from augury.llm.resolver import Resolver, RoleStatus, default_resolver, role_statuses
 from augury.rag.cluster import cluster_siblings
-from augury.rag.guard import vector_problem
+from augury.rag.guard import embed_problem, vector_problem
 from augury.rag.ingest import content_needs_ingest, ingest_content
 from augury.rag.related import related_items
 from augury.rag.search import SearchFilters, VectorsUnavailable, item_order, search
@@ -753,7 +753,7 @@ class AuguryApp(App[None]):
         content = ContentsRepo(self.conn).get(item_id)
         if item is None or content is None:
             return
-        usable = vector_problem(self.conn, self.embedder, self.no_embedder) is None
+        usable = embed_problem(self.conn, self.embedder, self.no_embedder) is None
         if not content_needs_ingest(self.conn, item_id, content, vectors=usable):
             return
         runs = RunsRepo(self.conn)

@@ -107,3 +107,14 @@ async def test_the_ai_digest_weighs_novelty(paths):
     breakdowns = {r[0]: json.loads(r[1]) for r in rows}
     assert breakdowns[different]["terms"]["nov"] > breakdowns[similar]["terms"]["nov"]
     assert "nov" in breakdowns[read]["missing"] or "nov" in breakdowns[read]["terms"]
+
+
+async def test_an_item_already_read_is_compared_with_the_others_read(paths):
+    conn = open_db(paths, now=NOW)
+    [first, second] = add_items(conn, [(SAME, "x"), (SAME + " again", "x")])
+    await _ingest(conn, threshold=None)
+    StateRepo(conn).mark_opened(first, now=NOW)
+    StateRepo(conn).mark_opened(second, now=NOW)
+    scores = novelty_scores(conn, [first, second], today=local_day(NOW))
+    assert set(scores) == {first, second}  # its own vector, nearest, is not the only one fetched
+    assert scores[first] < 0.5

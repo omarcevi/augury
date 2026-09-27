@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from augury.core.clock import day_number
-from augury.core.db.chunks_repo import VEC_TABLE, ChunksRepo, vec_dimensions, vec_loaded
+from augury.core.db.chunks_repo import VEC_TABLE, ChunksRepo, has_vectors
 from augury.rag.search import SearchFilters, vec_ranking
 
 CLUSTER_K = 5
@@ -31,13 +31,16 @@ class Sibling:
 
 def _vectors_usable(conn: sqlite3.Connection) -> bool:
     """Stored vectors exist and all come from one model, so comparing them means something."""
-    if not vec_loaded(conn) or vec_dimensions(conn) is None:
+    if not has_vectors(conn):
         return False
     return len(ChunksRepo(conn).index_models()) == 1
 
 
 def archive_vector(conn: sqlite3.Connection, item_id: str) -> tuple[bytes, int] | None:
-    """The item's archive vector and its published_day, or None (not embedded yet)."""
+    """The item's archive vector and its published_day, or None (not embedded yet, or no
+    vector index at all)."""
+    if not has_vectors(conn):
+        return None
     row = conn.execute(
         f"SELECT v.embedding, c.published_day FROM chunks c JOIN {VEC_TABLE} v"
         " ON v.chunk_id = c.id WHERE c.item_id = ? AND c.collection = 'archive'",

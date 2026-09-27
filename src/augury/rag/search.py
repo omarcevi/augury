@@ -1,7 +1,10 @@
 """Hybrid search (spec §6.4): FTS5 bm25 top 50 and vec0 KNN top 50, fused with Reciprocal Rank
 Fusion (k = 60). Filters apply inside both queries -- metadata constraints in the KNN, the
 same conditions joined on `chunks` for FTS -- never after the top k, which could leave no
-evidence at all. One query embedding per search (RETRIEVAL_QUERY), under the budget."""
+evidence at all. The one exception is `exclude_items` on the vector side: sqlite-vec applies
+`NOT IN` only after picking the k nearest, so vec_ranking over-fetches by the excluded items'
+passages and drops them itself. One query embedding per search (RETRIEVAL_QUERY), under the
+budget."""
 
 import re
 import sqlite3
@@ -11,13 +14,14 @@ from typing import Literal
 
 import sqlite_vec
 
-from augury.core.db.chunks_repo import VEC_TABLE, ChunksRepo, StoredChunk
+from augury.core.db.chunks_repo import VEC_TABLE, ChunksRepo, StoredChunk, has_vectors
 from augury.llm.embedder import Embedder, EmbedMeter
 from augury.rag.guard import vector_problem
 
 FTS_K = 50
 VEC_K = 50
 RRF_K = 60
+MAX_K = 4096  # sqlite-vec's limit on a KNN query's k
 MAX_QUERY_TOKENS = 32
 _TOKEN = re.compile(r"[\w.\-]+")
 _STOPWORDS = frozenset(
@@ -112,7 +116,7 @@ def _clauses(f: SearchFilters, prefix: str, *, vector: bool) -> _Clauses:
         c.add(f"{prefix}published_day <= ?", f.day_to)
     if f.read_since is not None and vector:
         c.add(f"{prefix}read_day >= ?", f.read_since)
-    if f.exclude_items:
+    if f.exclude_items and not vector:  # the vector side drops them itself (vec_ranking)
         c.among(f"{prefix}item_id", sorted(f.exclude_items), negate=True)
     return c
 
@@ -148,15 +152,38 @@ def vec_ranking(
     filters: SearchFilters,
     limit: int = VEC_K,
 ) -> list[tuple[int, float]]:
-    """(chunk id, cosine similarity), nearest first; every filter is a KNN constraint."""
+    """(chunk id, cosine similarity), nearest first; every filter is a KNN constraint except
+    `exclude_items`, which sqlite-vec would apply after the top k (so the excluded items'
+    own vectors, usually the nearest, would take the places): k is raised by the excluded
+    items' passages in scope and they are dropped here. Empty while there is no vector index."""
+    if not has_vectors(conn):
+        return []
     blob = vector if isinstance(vector, bytes) else sqlite_vec.serialize_float32(list(vector))
     where = _clauses(filters, "", vector=True)
+    skip = filters.exclude_items
+    k = min(limit + _passages_of(conn, skip, filters.collections), MAX_K)
     rows = conn.execute(
-        f"SELECT chunk_id, distance FROM {VEC_TABLE} WHERE embedding MATCH ? AND k = ?"
+        f"SELECT chunk_id, item_id, distance FROM {VEC_TABLE} WHERE embedding MATCH ? AND k = ?"
         f" AND {' AND '.join(where.sql)} ORDER BY distance",
-        [blob, limit, *where.args],
+        [blob, k, *where.args],
     )
-    return [(int(r[0]), 1.0 - float(r[1])) for r in rows]
+    kept = [(int(r[0]), 1.0 - float(r[2])) for r in rows if r[1] not in skip]
+    return kept[:limit]
+
+
+def _passages_of(
+    conn: sqlite3.Connection, item_ids: frozenset[str], collections: Sequence[str]
+) -> int:
+    """How many passages these items have in these collections: at most that many vectors."""
+    if not item_ids:
+        return 0
+    items, scope = sorted(item_ids), list(collections)
+    row = conn.execute(
+        f"SELECT count(*) FROM chunks WHERE item_id IN ({','.join('?' * len(items))})"
+        f" AND collection IN ({','.join('?' * len(scope))})",
+        [*items, *scope],
+    ).fetchone()
+    return int(row[0])
 
 
 def rrf(rankings: Sequence[Sequence[int]], k: int = RRF_K) -> list[tuple[int, float]]:
