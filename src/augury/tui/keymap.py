@@ -64,6 +64,8 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
         KeyHint("?", "help"),
         KeyHint("q", "quit"),
     ),
+    # M4: typing a question in the Ask drawer (spec §8.2).
+    "ASK": (KeyHint("type", "a question"), KeyHint("enter", "ask"), KeyHint("esc", "back")),
     # P14: at 80 columns the row fits the essentials, enter, ⌫ and e (see HELP_ONLY for the rest).
     "CONFIG": (
         KeyHint("enter", "edit"),
@@ -85,7 +87,13 @@ HELP_ONLY: dict[str, tuple[KeyHint, ...]] = {
     # M3: R starts discovery again for the highlighted (e.g. broken) source; in the discovery
     # panel space checks a candidate and enter adds the checked ones.
     "SOURCES": (KeyHint("R", "re-discover"), KeyHint("space", "check candidate")),
-    "READ": (KeyHint("h", "hide/show TL;DR"), KeyHint("T", "retry TL;DR")),
+    "READ": (
+        KeyHint("h", "hide/show TL;DR"),
+        KeyHint("T", "retry TL;DR"),
+        KeyHint("a", "ask this item"),  # M4: the hints row is full at 80-90 columns
+        KeyHint("A", "ask the archive"),
+    ),
+    "NORMAL": (KeyHint("a", "ask this item"), KeyHint("A", "ask the archive")),
     "CONFIG": (
         KeyHint("space", "flip on/off (or edit)"),
         KeyHint("del", "reset to default"),

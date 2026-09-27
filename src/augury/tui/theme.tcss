@@ -41,6 +41,11 @@ PickerModal, ChoiceModal { align: center middle; }
 /* P12: collapsed (h), the box holds one line that never wraps onto a second. */
 #reader-tldr.collapsed { text-wrap: nowrap; text-overflow: ellipsis; }
 #reader-doc { height: 1fr; }
+/* M4: the Ask drawer, at the bottom of the reader. */
+#ask-drawer { display: none; height: auto; max-height: 60%; border: round $accent; border-title-color: $accent; padding: 0 1; }
+#ask-answer-box { height: auto; max-height: 12; }
+#ask-answer { height: auto; }
+#ask-sources { height: auto; max-height: 8; border: none; }
 /* M4: the Related panel under the article; five one-line entries, cut rather than wrapped. */
 #reader-related { display: none; height: auto; max-height: 7; border: round $panel; border-title-color: $text-muted; padding: 0 1; text-wrap: nowrap; text-overflow: ellipsis; }
 /* P10: the text column is capped at [tui] reading_width (ReaderPane.set_reading_width); centre it. */

@@ -23,6 +23,7 @@ from augury.tui.clipboard import copy_and_tell
 from augury.tui.digest_view import breakdown_line
 from augury.tui.query import ItemRow
 from augury.tui.safe_text import text
+from augury.tui.widgets.ask_drawer import AskDrawer
 from augury.tui.widgets.contents_list import ContentsList
 
 # What the TL;DR box says while one is on its way, and (P12) while none is written yet but one
@@ -159,6 +160,7 @@ class ReaderPane(Vertical):
         related = Static(id="reader-related")  # M4 (spec §6.5), under the article
         related.border_title = "Related"
         yield related
+        yield AskDrawer(id="ask-drawer")  # M4 (spec §8.2): a / A
 
     @property
     def viewer(self) -> MarkdownViewer:
@@ -214,6 +216,20 @@ class ReaderPane(Vertical):
             body.append_text(text(f"  {item.source_id} · {item.similarity:.2f}", "dim"))
         panel.update(body)
         panel.display = True
+
+    def goto_section(self, section: str) -> bool:
+        """M4: scroll to the heading a cited passage came from (its last path part)."""
+        label = section.split(" > ")[-1].strip()
+        document = self.viewer.document
+        for _level, heading, block_id in document.table_of_contents or []:
+            if block_id and str(heading).strip() == label:
+                try:
+                    y = document.query_one(f"#{block_id}").virtual_region.y
+                except NoMatches:
+                    return False
+                self.viewer.scroll_to(y=y, animate=False)
+                return True
+        return False
 
     def show_status(self, message: str, style: str = "") -> None:
         self.status_message = message

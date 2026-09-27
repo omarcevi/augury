@@ -20,6 +20,7 @@ from textual.reactive import reactive
 from textual.timer import Timer
 from textual.widgets import ContentSwitcher, DataTable, Input, Static
 
+from augury.agents.ask import AskDeps, AskScope, AskUnavailable, ask, ask_unavailable
 from augury.agents.llm_step import describe
 from augury.agents.scout import ScoutDeps, ScoutReport, recover_interrupted_runs, run_scout
 from augury.agents.summarize import Summarizer
@@ -71,6 +72,7 @@ from augury.tui.query import (
 )
 from augury.tui.safe_text import text
 from augury.tui.ui_state import FilterState, UiSession, effective_theme
+from augury.tui.widgets.ask_drawer import AskDrawer
 from augury.tui.widgets.config_view import (
     ConfigView,
     EditorRunner,
@@ -113,6 +115,8 @@ _ITEMS_ONLY_ACTIONS = frozenset(
         "toggle_triage_hidden",
         "retry_tldr",
         "toggle_tldr",
+        "ask_item",  # M4
+        "ask_archive",
     }
 )
 # The mirror image: actions that only make sense on the Config view (P3, P14), disabled
@@ -159,6 +163,8 @@ class AuguryApp(App[None]):
         Binding("x", "toggle_hide", "hide"),
         Binding("o", "open_browser", "browser"),
         Binding("r", "scout", "refresh"),
+        Binding("a", "ask_item", "ask"),  # M4 (spec §8.4)
+        Binding("A", "ask_archive", "ask archive"),
         Binding("escape", "back_to_table", "back"),
     ]
     mode: reactive[str] = reactive("NORMAL")
@@ -546,6 +552,9 @@ class AuguryApp(App[None]):
         self.open_item(str(event.row_key.value))
 
     def open_item(self, item_id: str, *, restored: bool = False) -> None:
+        scope = self.query_one(AskDrawer).scope
+        if scope is not None and scope.kind == "item" and scope.item_id != item_id:
+            self._hide_ask()  # n/p or Enter left its item behind; an archive question stays
         viewer = self.query_one(ReaderPane).viewer
         self.reading_id = None  # the old document scrolls back to the top unrecorded
         viewer.scroll_home(animate=False, immediate=True)
@@ -779,6 +788,92 @@ class AuguryApp(App[None]):
         if self.is_running and stats.embedded:
             self.refresh_health()  # today's spend
 
+    def _ask_deps(self) -> AskDeps | None:
+        if self.http is None:
+            return None
+        return AskDeps(
+            conn=self.conn,
+            http=self.http,
+            config=self.config,
+            resolver=self.resolver,
+            embedder=self.embedder,
+            now=self.now,
+            unavailable=self.no_embedder,
+        )
+
+    def _open_ask(self, kind: str) -> None:
+        """a / A (spec §8.2): the drawer, scoped to the open (or highlighted) item or the
+        archive. The highlighted item is opened first, as Enter does: the drawer lives in the
+        reader. Unavailable (no smart model, no index, budget): a toast says why."""
+        deps = self._ask_deps()
+        if deps is None:
+            return
+        if (reason := ask_unavailable(deps)) is not None:
+            self.notify(reason, markup=False, timeout=4)
+            return
+        row = self._target()
+        if row is None and (kind == "item" or self.reading_id is None):
+            self.notify("Nothing to ask about yet: scout first (r).", markup=False)
+            return
+        if row is not None and self.reading_id != row.id:
+            self.open_item(row.id)
+        item_id = self.reading_id
+        scope = AskScope("item", item_id=item_id) if kind == "item" else AskScope("archive")
+        title = "Ask about this item" if kind == "item" else "Ask across the archive"
+        self.query_one(AskDrawer).open(scope, title)
+        self.mode = "ASK"
+
+    def action_ask_item(self) -> None:
+        self._open_ask("item")
+
+    def action_ask_archive(self) -> None:
+        self._open_ask("archive")
+
+    def _hide_ask(self) -> None:
+        """The drawer goes and an answer on its way is dropped. Directly, not through Closed:
+        its handler would run after a following open and take the focus from the drawer."""
+        self.query_one(AskDrawer).display = False
+        self.workers.cancel_group(self, "ask")
+
+    def on_ask_drawer_closed(self, _event: AskDrawer.Closed) -> None:
+        self.workers.cancel_group(self, "ask")  # an answer on its way is dropped
+        if self.reading_id is not None:
+            self.mode = "READ"
+            self.query_one(ReaderPane).viewer.document.focus()
+        else:
+            self.action_back_to_table()
+
+    def on_ask_drawer_passage_chosen(self, event: AskDrawer.PassageChosen) -> None:
+        """Citations jump to the passage: its section here, or the item it comes from."""
+        passage = event.passage
+        if passage.item_id != self.reading_id:
+            self.open_item(passage.item_id)
+        elif not self.query_one(ReaderPane).goto_section(passage.section):
+            self.notify(f"From: {passage.header}", markup=False, timeout=3)
+
+    @work(exclusive=True, group="ask")
+    async def run_ask(self, question: str, scope: AskScope) -> None:
+        drawer = self.query_one(AskDrawer)
+        deps = self._ask_deps()
+        if deps is None or not question.strip():
+            return
+        drawer.show_status("Asking…")
+        try:
+            answer = await ask(question, scope, deps)
+        except AskUnavailable as e:
+            if self.is_running:
+                drawer.show_status(str(e))
+            return
+        except Exception as exc:  # the reader stays usable; say why
+            if self.is_running:
+                self.log.error(f"ask failed\n{traceback.format_exc()}")
+                drawer.show_status(f"Ask failed: {' '.join(describe(exc, 200).split())}")
+            return
+        if not self.is_running:
+            return
+        drawer.show_answer(answer, self.get_css_variables().get("warning", ""))
+        self.refresh_health()  # today's spend
+
     def _also(self, item_id: str) -> list[str]:
         """M4: the sources that also cover this item (its cluster), each once. Local only."""
         return list(dict.fromkeys(s.source_id for s in cluster_siblings(self.conn, item_id)))
@@ -862,6 +957,7 @@ class AuguryApp(App[None]):
         self.mode = "SEARCH"
 
     def action_back_to_table(self) -> None:
+        self._hide_ask()  # the drawer lives in the reader, which the preview reuses
         if self.reading_id is not None:
             self._refresh_row(self.reading_id)
         self.reading_id = None
@@ -1055,6 +1151,11 @@ class AuguryApp(App[None]):
         )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "ask-input":
+            drawer = self.query_one(AskDrawer)
+            if drawer.scope is not None:
+                self.run_ask(event.value, drawer.scope)
+            return
         if event.input.id == "search":
             self.action_back_to_table()
             if event.value.strip():
