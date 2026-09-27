@@ -21,6 +21,7 @@ from augury.core.db.connect import transaction
 from augury.core.models import Content, Item
 from augury.llm.embedder import EMBED_BATCH, Embedder, EmbedMeter
 from augury.rag.chunker import CHUNKER_VERSION, archive_text, chunk_markdown, context_header
+from augury.rag.cluster import update_clusters
 from augury.rag.guard import vector_problem
 
 
@@ -28,6 +29,7 @@ class IngestStats(BaseModel):
     archived: int = 0  # archive passages written (new or changed items)
     content: int = 0  # content passages written
     embedded: int = 0  # passages that got a vector
+    clustered: int = 0  # items whose cluster changed
     keyword_only: str | None = None  # why no vectors were made
     needs_reindex: bool = False  # the mixed-model guard refused: `augury reindex`
     stopped: str | None = None  # the budget (or the provider) stopped embedding
@@ -109,8 +111,10 @@ async def ingest_archive(
     meter: EmbedMeter | None,
     now: Callable[[], datetime],
     unavailable: str | None = None,
+    cluster_threshold: float | None = None,
 ) -> IngestStats:
-    """The scout's archive tier: every item's one passage, embedded 100 at a time."""
+    """The scout's archive tier: every item's one passage, embedded 100 at a time. With
+    `cluster_threshold`, each batch is then clustered (spec §6.5)."""
     stats = IngestStats()
     problem = vector_problem(conn, embedder, unavailable)
     _mark(stats, problem)
@@ -133,6 +137,9 @@ async def ingest_archive(
                     embed_dim=usable.dimensions if usable and vectors is not None else None,
                     now=now(),
                 )
+            if cluster_threshold is not None:
+                ids = [c.item_id for c in batch]
+                stats.clustered += update_clusters(conn, ids, threshold=cluster_threshold)
         stats.archived += len(batch)
         stats.embedded += len(batch) if vectors is not None else 0
     return stats

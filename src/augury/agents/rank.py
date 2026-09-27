@@ -4,7 +4,7 @@
     rel = relevance / 10
     pop = percentile of the item's popularity within its source over the last 30 days
     rec = exp(-age_days / 3)
-    nov = novelty (M4; unavailable until then)
+    nov = 1 - the highest similarity to what you read in the last 60 days (M4, rag/cluster.py)
 
 A missing term hands its weight to the item's other terms, so a blog without upvotes is never
 penalized for having none.
@@ -29,6 +29,7 @@ from augury.core.clock import from_iso, local_day_bounds, to_iso
 from augury.core.config import RankingConfig
 from augury.core.db.digest_repo import DigestRepo
 from augury.core.models import HIDING_FLAGS
+from augury.rag.cluster import novelty_scores
 
 Mode = Literal["ai", "likes", "cold"]  # pre-flight, user decision 2026-09-26
 # The signal that counts as popularity, per built-in recipe type; other sources have none.
@@ -157,6 +158,8 @@ def rank_day(
     )
     mode: Mode = "ai" if ai else "likes" if affinity is not None else "cold"
     weights = _WEIGHTS[mode](config)
+    # M4: only the spec formula weighs novelty; without vectors or reads it is unavailable.
+    novelty = novelty_scores(conn, [r["id"] for r in rows], today=day) if ai else {}
     scored: list[tuple[Ranked, datetime]] = []
     for r in rows:
         seen = from_iso(r["first_seen"])
@@ -167,7 +170,7 @@ def rank_day(
             "rel": r["relevance"] / 10 if r["relevance"] is not None else None,
             "pop": percentile(pop, population[r["source_id"]]) if pop is not None else None,
             "rec": recency(age_days),
-            "nov": None,  # M4
+            "nov": novelty.get(r["id"]),
         }
         matched: tuple[str, ...] = ()
         if affinity is not None:

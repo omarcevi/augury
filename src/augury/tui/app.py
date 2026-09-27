@@ -46,6 +46,7 @@ from augury.extract.service import get_or_extract
 from augury.llm.embedder import Embedder, EmbedderUnavailable, EmbedMeter, resolve_embedder
 from augury.llm.probes import apply_probes, load_probe_results
 from augury.llm.resolver import Resolver, RoleStatus, default_resolver, role_statuses
+from augury.rag.cluster import cluster_siblings
 from augury.rag.guard import vector_problem
 from augury.rag.search import SearchFilters, VectorsUnavailable, item_order, search
 from augury.sources.http import HttpClient, PoliteClient
@@ -534,7 +535,7 @@ class AuguryApp(App[None]):
         status.selection = text(status_selection(row), one_line=True) if row else text("")
         if row and self.reading_id is None and (item := ItemsRepo(self.conn).get(row.id)):
             reader = self.query_one(ReaderPane)
-            reader.preview(item, row)
+            reader.preview(item, row, self._also(row.id))
             reader.show_tldr(self.summarizer.cached(row.id))  # cached only: moving never calls
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -577,7 +578,9 @@ class AuguryApp(App[None]):
             StateRepo(self.conn).mark_opened(item_id, now=self.now())
         self._refresh_row(item_id)
         self.refresh_health()  # P11: one fewer new item
-        reader.show_header(item, self.query_one(ItemsTable).rows_by_key.get(item_id))
+        reader.show_header(
+            item, self.query_one(ItemsTable).rows_by_key.get(item_id), self._also(item_id)
+        )
         reader.show_status("Extracting…", "dim")
         # Awaited: Markdown resets its cached table of contents when an update starts, so an
         # update still running when the body arrives would cache a contents list without it.
@@ -606,7 +609,9 @@ class AuguryApp(App[None]):
         if self.reading_id != item_id:  # the reader was closed meanwhile; the result is cached
             return
         # Again, now that the row knows the reading time.
-        reader.show_header(item, self.query_one(ItemsTable).rows_by_key.get(item_id))
+        reader.show_header(
+            item, self.query_one(ItemsTable).rows_by_key.get(item_id), self._also(item_id)
+        )
         if content.status == "ok":
             reader.show_status("")
             await reader.show_markdown(content.body_md)
@@ -712,6 +717,10 @@ class AuguryApp(App[None]):
         self._reanchor()  # the box's height changed the article's, so keep the reading position
         if self.session is not None:  # saved at once, like the theme; restored per remember_state
             self.session.update(tldr_collapsed=collapsed)
+
+    def _also(self, item_id: str) -> list[str]:
+        """M4: the sources that also cover this item (its cluster), each once. Local only."""
+        return list(dict.fromkeys(s.source_id for s in cluster_siblings(self.conn, item_id)))
 
     def _refresh_row(self, item_id: str) -> None:
         if (row := get_item_row(self.conn, item_id, now=self.now())) is not None:

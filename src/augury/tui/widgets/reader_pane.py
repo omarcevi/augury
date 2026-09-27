@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from contextlib import suppress
 from typing import ClassVar
 
@@ -165,7 +166,8 @@ class ReaderPane(Vertical):
         document = self.viewer.document
         document.styles.max_width = width + document.styles.gutter.width
 
-    def show_header(self, item: Item, row: ItemRow | None) -> None:
+    def show_header(self, item: Item, row: ItemRow | None, also: Sequence[str] = ()) -> None:
+        """`also` (M4): the sources of the item's cluster siblings, "Also covered by: …"."""
         header = text(item.title)
         header.stylize("bold")
         meta = [item.source_id, item.kind]
@@ -179,6 +181,9 @@ class ReaderPane(Vertical):
             meta.append(f"▲{row.popularity}")
         header.append("\n")
         header.append_text(text(" · ".join(meta), "dim"))
+        if also:  # M4 (spec §6.5): grouped, never merged
+            header.append("\n")
+            header.append_text(text("Also covered by: " + ", ".join(also), "dim"))
         if row is not None and row.why_read:  # F27: triage's one line, from the model
             header.append("\n")
             header.append_text(text(row.why_read, "italic"))
@@ -242,9 +247,9 @@ class ReaderPane(Vertical):
         self.preview_text = item.summary or "No summary yet."
         return self.show_markdown("\n".join(f"> {line}" for line in self.preview_text.splitlines()))
 
-    def preview(self, item: Item, row: ItemRow | None) -> None:
+    def preview(self, item: Item, row: ItemRow | None, also: Sequence[str] = ()) -> None:
         """Database only: moving the cursor must never cost a request."""
-        self.show_header(item, row)
+        self.show_header(item, row, also)
         self.show_status("Enter to read · o to open in your browser", "dim")
         self.show_summary(item)
 

@@ -197,6 +197,7 @@ def build_scout_workflow(
                 meter=meter,
                 now=deps.now,
                 unavailable=no_embedder,
+                cluster_threshold=deps.config.rag.cluster_threshold,  # M4: spec §6.5
             )
         except Exception as exc:  # best effort: search falls back to what is indexed
             stats = IngestStats(error=f"{type(exc).__name__}: {exc}")
