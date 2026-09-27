@@ -42,6 +42,16 @@ def test_add_get_and_duplicate(paths):
     assert repo.unique_id("example-blog") == "example-blog-2"
 
 
+def test_a_suffixed_id_still_fits_the_id_pattern(paths):
+    repo = SourcesRepo(open_db(paths, now=NOW))
+    base = "a" * 60 + "-bc"  # 63 characters, the longest id Source allows
+    repo.add(_user_source(base), now=NOW)
+    assert repo.unique_id(base) == "a" * 60 + "-2"  # cut to make room, with no double dash
+    repo.add(_user_source("a" * 60 + "-2"), now=NOW)
+    assert repo.unique_id(base) == "a" * 60 + "-3"
+    Source.model_validate(_user_source().model_dump() | {"id": repo.unique_id(base)})
+
+
 def test_health_follows_success_and_failures(paths):
     repo = SourcesRepo(open_db(paths, now=NOW))
     repo.record_success("hf-papers", FetchState(etag='"abc"'), now=NOW)

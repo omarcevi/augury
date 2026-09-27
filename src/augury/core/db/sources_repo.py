@@ -11,6 +11,7 @@ DEGRADED_AFTER = 1  # consecutive failures (spec §4.4): 1-2 is degraded (⚠)
 BROKEN_AFTER = 3  # 3 or more is broken (✗, offers re-discover); never disabled automatically
 # Where each user recipe keeps the URL it fetches: two sources on one URL are duplicates.
 RECIPE_URL_KEYS = ("feed_url", "sitemap_url", "listing_url")
+MAX_ID_LEN = 63  # Source.id's pattern: a lowercase letter or digit, then up to 62 more
 
 
 def health_state(consecutive_failures: int, last_success_at: datetime | None) -> Health:
@@ -139,9 +140,12 @@ class SourcesRepo:
         )
 
     def unique_id(self, base: str) -> str:
+        """`base`, or else `base-2`, `base-3`, …, with base cut to leave room for the suffix, so
+        the id still fits Source.id (slugify already caps base at 63 characters)."""
         candidate, n = base, 2
         while self.get(candidate) is not None:
-            candidate, n = f"{base}-{n}", n + 1
+            suffix = f"-{n}"
+            candidate, n = f"{base[: MAX_ID_LEN - len(suffix)].rstrip('-')}{suffix}", n + 1
         return candidate
 
     def find_by_feed_url(self, feed_url: str) -> str | None:
