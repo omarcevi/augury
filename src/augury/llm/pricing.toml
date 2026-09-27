@@ -19,3 +19,8 @@ output_per_mtok = 7.50
 ["gemini/gemini-3.5-flash"]
 input_per_mtok = 1.50
 output_per_mtok = 9.00
+
+["gemini/gemini-embedding-001"]
+# embeddings bill input only (LiteLLM's offline cost map, 1.5e-07 per token, checked 2026-09-27)
+input_per_mtok = 0.15
+output_per_mtok = 0.0

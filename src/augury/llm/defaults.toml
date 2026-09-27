@@ -5,3 +5,8 @@
 fast = "gemini/gemini-3.5-flash-lite"
 # discovery (M3) and Ask (M4): fewer, harder calls
 smart = "gemini/gemini-3.1-pro-preview"
+
+# M4 retrieval (spec §6.3), configured apart from [models]: Gemini's text embedding model,
+# cut to [embeddings] dimensions (768). config.toml [embeddings] overrides it.
+[embeddings]
+model = "gemini/gemini-embedding-001"

@@ -207,3 +207,15 @@ def check_search(
         return [Check("search", False, str(e), required=False)]
     how = " (auto)" if config.search.provider == "auto" else ""
     return [Check("search", True, f"{provider}{how}", required=False)]
+
+
+def check_embedder(config: Config, env: Mapping[str, str] | None = None) -> list[Check]:
+    """Which embedder hybrid search, Related and Ask use (spec §6.3), and whether it can run.
+    Offline: it builds the client and sends nothing. Without one, search is keyword-only."""
+    from augury.llm.embedder import EmbedderUnavailable, resolve_embedder  # lazy, like search
+
+    try:
+        embedder = resolve_embedder(config, env)
+    except EmbedderUnavailable as e:
+        return [Check("embeddings", False, f"{e}; search is keyword-only", required=False)]
+    return [Check("embeddings", True, f"{embedder.spec} · {embedder.dimensions} dims", False)]

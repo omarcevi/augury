@@ -24,12 +24,13 @@ class _Section(BaseModel):
 AGENTS = ("triage", "summarizer", "discovery", "ask")
 
 
-def _packaged_default_models() -> dict[str, str]:
+def _packaged_defaults() -> dict[str, Any]:
     text = files("augury.llm").joinpath("defaults.toml").read_text(encoding="utf-8")
-    return dict(tomllib.loads(text)["models"])
+    return tomllib.loads(text)
 
 
-DEFAULT_MODELS = _packaged_default_models()
+DEFAULT_MODELS: dict[str, str] = dict(_packaged_defaults()["models"])
+DEFAULT_EMBED_MODEL: str = _packaged_defaults()["embeddings"]["model"]
 
 
 def _model_spec(value: str) -> str:
@@ -130,6 +131,22 @@ class SearchConfig(_Section):
     max_results: int = Field(default=8, ge=1, le=20)
 
 
+def _embed_spec(value: str) -> str:
+    return value if value == "" else _model_spec(value)  # "" turns embeddings off
+
+
+class EmbeddingsConfig(_Section):
+    # Spec §6.3: separate from [models], because some LLM providers have no embeddings API.
+    # "" = no embedder: search stays keyword-only and Related/Ask are off (spec N2).
+    model: Annotated[str, AfterValidator(_embed_spec)] = DEFAULT_EMBED_MODEL
+    dimensions: int = Field(default=768, ge=8, le=4096)
+
+
+class RagConfig(_Section):
+    # Spec §6.5: two archive items this similar (cosine) join one cluster ("Also covered by").
+    cluster_threshold: float = Field(default=0.85, ge=0.5, le=1.0)
+
+
 class TuiConfig(_Section):
     theme: str = "textual-dark"
     # Restore the last filters, search, view and selected row on launch (data/ui_state.json).
@@ -156,6 +173,8 @@ class Config(_Section):
     ranking: RankingConfig = Field(default_factory=RankingConfig)
     summarizer: SummarizerConfig = Field(default_factory=SummarizerConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
+    rag: RagConfig = Field(default_factory=RagConfig)
     pricing: dict[str, PriceConfig] = Field(default_factory=dict)  # [pricing."<provider/model>"]
 
 

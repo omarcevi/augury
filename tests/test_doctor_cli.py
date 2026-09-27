@@ -67,3 +67,15 @@ def test_doctor_warns_when_a_model_has_no_known_price(paths):
     result = CliRunner().invoke(main, ["doctor", "--offline"])
     assert "! pricing" in result.output and "gemini/gemini-future" in result.output
     assert "! .env" not in result.output
+
+
+def test_doctor_names_the_embedder_or_why_search_is_keyword_only(paths):
+    result = CliRunner().invoke(main, ["doctor", "--offline"])
+    assert result.exit_code == 0, result.output  # embeddings are optional too
+    line = next(line for line in result.output.splitlines() if "embeddings" in line)
+    assert line.startswith("! embeddings") and "keyword-only" in line
+    paths.env_file.write_text("GEMINI_API_KEY=secret-value\n")
+    paths.env_file.chmod(0o600)
+    result = CliRunner().invoke(main, ["doctor", "--offline"])
+    assert "✓ embeddings   gemini/gemini-embedding-001 · 768 dims" in result.output
+    assert "secret-value" not in result.output
