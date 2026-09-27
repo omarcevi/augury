@@ -2,7 +2,7 @@ import json
 import re
 import sqlite3
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Literal
@@ -194,7 +194,10 @@ def _liked_sources(conn: sqlite3.Connection) -> frozenset[str]:
 
 
 def _conditions(
-    f: ItemFilter, now: datetime, new_since: datetime | None
+    f: ItemFilter,
+    now: datetime,
+    new_since: datetime | None,
+    ranked: Sequence[str] | None = None,
 ) -> tuple[list[str], list[object]]:
     """What a view contains, as WHERE clauses over _FROM. The list, the hidden-by-triage count
     and the tag options all use it, so they always agree about which items that is."""
@@ -206,7 +209,10 @@ def _conditions(
     elif (floor := date_floor(f.date, now)) is not None:
         where.append("i.first_seen >= ?")
         args.append(to_iso(floor))
-    if (query := fts_query(f.search)) is not None:
+    if ranked is not None:  # M4: Enter's semantic results stand in for the typed FTS match
+        where.append("i.id IN (SELECT value FROM json_each(?))")
+        args.append(json.dumps(list(ranked)))
+    elif (query := fts_query(f.search)) is not None:
         where.append("i.pk IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)")
         args.append(query)
     for column, values in (("i.source_id", f.sources), ("i.kind", f.kinds)):
@@ -233,15 +239,24 @@ def list_items(
     limit: int = 500,
     pinned: str | None = None,
     new_since: datetime | None = None,
+    ranked: Sequence[str] | None = None,
 ) -> tuple[list[ItemRow], int]:
     """`pinned` (the item open in the reader) stays listed even if the filter would drop it.
-    `new_since` is the last visit's start, for Show: New (None on a first launch)."""
-    where, args = _conditions(f, now, new_since)
+    `new_since` is the last visit's start, for Show: New (None on a first launch). `ranked`
+    (M4): semantic search's items, best first; they replace the search match, keep the view's
+    other conditions, and are listed in that order instead of the Sort chip's."""
+    where, args = _conditions(f, now, new_since, ranked)
     condition = " AND ".join(where)
     if pinned is not None:
         condition = f"({condition}) OR i.id = ?"
         args.append(pinned)
-    sql = f"{_SELECT} WHERE {condition} ORDER BY {_ORDER[f.sort]} LIMIT ?"
+    order = _ORDER[f.sort]
+    if ranked is not None:
+        # Where the item ranked; the pinned item (the one being read) may be absent: last.
+        position = "(SELECT key FROM json_each(?) WHERE value = i.id)"
+        order = f"{position} IS NULL, {position}, {_NEWEST}"
+        args.extend([json.dumps(list(ranked))] * 2)
+    sql = f"{_SELECT} WHERE {condition} ORDER BY {order} LIMIT ?"
     liked = _liked_sources(conn)
     rows = [_row(r, liked) for r in conn.execute(sql, [*args, limit])]
     total = int(conn.execute("SELECT count(*) FROM items").fetchone()[0])

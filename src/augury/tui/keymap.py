@@ -30,7 +30,11 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
         KeyHint("?", "help"),
         KeyHint("q", "quit"),
     ),
-    "SEARCH": (KeyHint("type", "filter"), KeyHint("enter/esc", "back to table")),
+    "SEARCH": (
+        KeyHint("type", "filter"),
+        KeyHint("enter", "semantic search"),  # M4: hybrid search (spec §8.3.2)
+        KeyHint("esc", "back"),
+    ),
     "READ": (
         KeyHint("j/k", "scroll"),
         KeyHint("[ ]", "section"),

@@ -15,6 +15,7 @@ from textual.pilot import Pilot
 
 from augury.core.config import Config, Interests, ScoutConfig
 from augury.core.db.open import open_db
+from augury.llm.embedder import Embedder
 from augury.llm.resolver import Resolver
 from augury.tui import clipboard
 from augury.tui.app import AuguryApp
@@ -113,6 +114,7 @@ def make_app(paths):
         editor_runner: Callable[[list[str]], object] | None = None,
         resolver: Resolver | None = None,
         interests: Interests | None = None,
+        embedder: Embedder | None = None,
     ) -> AuguryApp:
         extra: dict[str, Any] = {"editor_runner": editor_runner} if editor_runner else {}
         app = AuguryApp(
@@ -124,6 +126,7 @@ def make_app(paths):
             reader_debounce=debounce or instant,
             resolver=resolver,
             interests=interests,
+            embedder=embedder,
             **extra,
         )
         app.SEARCH_DEBOUNCE_S = 0  # type: ignore[misc]  # this app only, not the class

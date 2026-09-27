@@ -43,8 +43,11 @@ from augury.core.lock import ScoutAlreadyRunning
 from augury.core.paths import AppPaths
 from augury.core.text import strip_control_chars
 from augury.extract.service import get_or_extract
+from augury.llm.embedder import Embedder, EmbedderUnavailable, EmbedMeter, resolve_embedder
 from augury.llm.probes import apply_probes, load_probe_results
 from augury.llm.resolver import Resolver, RoleStatus, default_resolver, role_statuses
+from augury.rag.guard import vector_problem
+from augury.rag.search import SearchFilters, VectorsUnavailable, item_order, search
 from augury.sources.http import HttpClient, PoliteClient
 from augury.tui.clipboard import copy_and_tell, copy_selection
 from augury.tui.digest_view import degraded_banner, hidden_line, status_selection
@@ -175,6 +178,7 @@ class AuguryApp(App[None]):
         editor_runner: EditorRunner = run_editor_subprocess,
         resolver: Resolver | None = None,
         interests: Interests | None = None,
+        embedder: Embedder | None = None,
     ) -> None:
         super().__init__()
         self.conn, self.config, self.paths, self.now = conn, config, paths, now
@@ -199,6 +203,14 @@ class AuguryApp(App[None]):
         self.interests = interests or Interests()  # M2: triage judges items against these
         self.summarizer = Summarizer(conn, config, self.resolver, now=now)  # F28: TL;DRs
         self._summarizing: str | None = None  # the item whose TL;DR is being made
+        # M4: hybrid search, Related and Ask. None: keyword-only, and no_embedder says why.
+        self.embedder, self.no_embedder = embedder, None
+        if embedder is None:
+            try:
+                self.embedder = resolve_embedder(config)
+            except EmbedderUnavailable as e:
+                self.no_embedder = str(e)
+        self.semantic: tuple[str, tuple[str, ...]] | None = None  # (query, items best first)
         # Config and keys don't change while the app runs, so this is computed once.
         self.ai: tuple[RoleStatus, ...] = apply_probes(
             role_statuses(config, self.resolver), load_probe_results(paths.probe_cache_file)
@@ -366,6 +378,7 @@ class AuguryApp(App[None]):
             now=self.now(),
             pinned=self.reading_id,
             new_since=self.last_visit,
+            ranked=self._semantic_items(),
         )
         table = self.query_one(ItemsTable)
         table.show(rows, self.now(), self.get_css_variables())
@@ -395,6 +408,8 @@ class AuguryApp(App[None]):
             return
         listed, total = self._items_count
         title = f"Items ({listed}/{total})"
+        if self._semantic_items() is not None:
+            title += " · semantic"
         search = self.item_filter.search
         if search and self.query_one("#main").screen.has_class("layout-narrow"):
             title += f' · "{search}"'
@@ -957,6 +972,7 @@ class AuguryApp(App[None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "search":
             return
+        self.semantic = None  # typing goes back to the live keyword filter
         if self._search_timer is not None:
             self._search_timer.stop()
         value = event.value
@@ -971,6 +987,61 @@ class AuguryApp(App[None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "search":
             self.action_back_to_table()
+            if event.value.strip():
+                self.semantic_search(event.value)
+
+    def _semantic_items(self) -> tuple[str, ...] | None:
+        """Enter's results, while the search box still holds the query they answer."""
+        if self.semantic is None or self.semantic[0] != self.item_filter.search:
+            return None
+        return self.semantic[1]
+
+    @work(exclusive=True, group="semantic")
+    async def semantic_search(self, query: str) -> None:
+        """M4 (spec §8.3.2): Enter upgrades the typed filter to hybrid search. One query
+        embedding (an `embed` run, under the budget); Sources and Kind apply inside the KNN.
+        Without vectors the typed keyword results stay, and the toast says why."""
+        if self._search_timer is not None:  # the typed filter first, so both agree on the query
+            self._search_timer.stop()
+        if self.item_filter.search != query:
+            self.apply_filter(replace(self.item_filter, search=query))
+        if (problem := vector_problem(self.conn, self.embedder, self.no_embedder)) is not None:
+            self.notify(f"Keyword results only: {problem}", markup=False, timeout=4)
+            return  # no run: nothing would be spent
+        f = self.item_filter
+        filters = SearchFilters(source_ids=f.sources, kinds=f.kinds)
+        runs = RunsRepo(self.conn)
+        run_id = runs.start("embed", now=self.now())
+        meter = EmbedMeter(self.conn, self.config, run_id, self.now)
+        try:
+            hits = await search(
+                self.conn,
+                query,
+                filters,
+                embedder=self.embedder,
+                meter=meter,
+                top_k=100,
+                unavailable=self.no_embedder,
+            )
+        except VectorsUnavailable as e:
+            runs.finish(run_id, "ok", now=self.now(), stats={"skipped": str(e)})
+            if self.is_running:
+                self.notify(f"Keyword results only: {e}", markup=False, timeout=4)
+            return
+        except Exception as exc:  # a budget stop or the provider: the keyword list stays
+            runs.finish(run_id, "failed", now=self.now(), error=describe(exc, 300))
+            if self.is_running:
+                self.notify(f"Semantic search failed: {describe(exc, 200)}", markup=False)
+            return
+        except BaseException:
+            runs.finish(run_id, "interrupted", now=self.now())
+            raise
+        runs.finish(run_id, "ok", now=self.now(), stats={"hits": len(hits)})
+        if not self.is_running or self.item_filter.search != query:
+            return  # quit, or typed something else meanwhile
+        self.semantic = (query, tuple(item_order(hits)))
+        self.reload_items()
+        self.refresh_health()  # today's spend
 
     def action_cycle_sort(self) -> None:
         nxt = SORT_KEYS[(SORT_KEYS.index(self.item_filter.sort) + 1) % len(SORT_KEYS)]
