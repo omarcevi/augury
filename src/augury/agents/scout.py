@@ -24,9 +24,11 @@ from augury.core.config import Config, Interests
 from augury.core.db.runs_repo import RunsRepo
 from augury.core.db.sources_repo import SourcesRepo
 from augury.core.lock import ScoutAlreadyRunning, ScoutLock
-from augury.core.models import FetchResult, Source
+from augury.core.models import Content, FetchResult, Item, Source
 from augury.export.markdown import export_daily
+from augury.llm.embedder import Embedder, EmbedderUnavailable, EmbedMeter, resolve_embedder
 from augury.llm.resolver import ModelUnavailable, Resolver, default_resolver
+from augury.rag.ingest import IngestStats, ingest_archive, ingest_content
 from augury.sources.base import Adapter
 from augury.sources.http import HttpClient
 from augury.sources.registry import ADAPTERS
@@ -49,6 +51,7 @@ class ScoutReport(BaseModel):
     new_items: int
     enriched: int = 0
     enrich_error: str | None = None
+    ingest: IngestStats | None = None  # M4: archive passages (spec §6.1)
     triage: TriageStats | None = None  # M2
     digest: DigestStats | None = None  # M2
     digest_error: str | None = None
@@ -61,6 +64,12 @@ class ScoutReport(BaseModel):
         found = [f"{sid}: {s.error}" for sid, s in self.sources.items() if s.error]
         if self.enrich_error:
             found.append(f"enrich: {self.enrich_error}")
+        if self.ingest is not None:
+            reason = self.ingest.stopped or self.ingest.error
+            if reason is None and self.ingest.needs_reindex:
+                reason = self.ingest.keyword_only
+            if reason:
+                found.append(f"ingest: {reason}")
         if self.triage is not None and self.triage.degraded_kind in ("budget", "provider"):
             found.append(f"triage: {self.triage.degraded}")
         if self.digest_error:
@@ -85,6 +94,7 @@ class ScoutDeps:
     interests: Interests = field(default_factory=Interests)  # M2
     resolver: Resolver | None = None  # M2; None resolves from config and the environment
     rng: random.Random = field(default_factory=random.Random)  # M2; tests pin the shuffle
+    embedder: Embedder | None = None  # M4; None resolves [embeddings] (no key: keyword-only)
 
 
 @dataclass
@@ -101,6 +111,13 @@ def build_scout_workflow(
     outcomes: dict[str, _Outcome] = {}
     sources_repo = SourcesRepo(deps.conn)
     resolver = deps.resolver or default_resolver(deps.config)
+    embedder, no_embedder = deps.embedder, None
+    if embedder is None:
+        try:
+            embedder = resolve_embedder(deps.config)
+        except EmbedderUnavailable as e:
+            no_embedder = str(e)
+    meter = EmbedMeter(deps.conn, deps.config, run_id, deps.now)  # spend goes on this scout
 
     def announce(report: ScoutReport) -> None:
         """Tell the caller (the TUI) there is something new to show. Store calls it, and so
@@ -171,6 +188,34 @@ def build_scout_workflow(
         sink.append(report)
         return report
 
+    async def ingest(node_input: ScoutReport) -> ScoutReport:
+        """M4 (spec §6.1): every item's archive passage, embedded when an embedder is set."""
+        try:
+            stats = await ingest_archive(
+                deps.conn,
+                embedder=embedder,
+                meter=meter,
+                now=deps.now,
+                unavailable=no_embedder,
+            )
+        except Exception as exc:  # best effort: search falls back to what is indexed
+            stats = IngestStats(error=f"{type(exc).__name__}: {exc}")
+        report = node_input.model_copy(update={"ingest": stats})
+        sink.append(report)
+        return report
+
+    async def on_content(item: Item, content: Content) -> int:
+        stats = await ingest_content(
+            deps.conn,
+            item,
+            content,
+            embedder=embedder,
+            meter=meter,
+            now=deps.now,
+            unavailable=no_embedder,
+        )
+        return stats.content
+
     # M2: the triage LlmAgent runs as a child node of this one (ctx.run_node needs
     # rerun_on_resume=True). Batching, repair and bisection are code, in agents/triage.py.
     @node(rerun_on_resume=True)
@@ -232,6 +277,7 @@ def build_scout_workflow(
                 now=deps.now,
                 # P12: config.toml's only; the TUI's remembered h toggle never reaches the scout.
                 tldrs=deps.config.tui.tldr == "shown",
+                on_content=on_content,  # M4: the content tier of what it reads ahead
             )
         except Exception as exc:  # reading ahead is best effort; it never fails the scout
             stats = PrefetchStats(error=f"{type(exc).__name__}: {exc}")
@@ -259,7 +305,8 @@ def build_scout_workflow(
             (plan_sources, fetch_source),
             (fetch_source, store),
             (store, enrich),
-            (enrich, triage),
+            (enrich, ingest),  # M4: spec §5.2's order, Enrich → Ingest → Triage
+            (ingest, triage),
             (triage, rank),
             (rank, prefetch),
             (prefetch, export),

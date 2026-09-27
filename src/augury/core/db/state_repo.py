@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from augury.core.clock import from_iso, to_iso
+from augury.core.clock import from_iso, local_day, to_iso
+from augury.core.db.chunks_repo import ChunksRepo
 from augury.core.db.connect import transaction
 
 Toggle = Literal["liked", "saved", "hidden"]
@@ -70,12 +71,16 @@ class StateRepo:
     def mark_opened(self, item_id: str, *, now: datetime) -> None:
         with transaction(self.conn):
             self._ensure(item_id, now)
+            row = self.conn.execute("SELECT read_at FROM item_state WHERE item_id = ?", (item_id,))
+            first_read = row.fetchone()[0] is None
             self.conn.execute(
                 "UPDATE item_state SET read_at = COALESCE(read_at, ?), updated_at = ?"
                 " WHERE item_id = ?",
                 (to_iso(now), to_iso(now), item_id),
             )
             self.log(item_id, "open", now=now)
+            if first_read:  # M4: novelty reads this from the vector index (spec §6.4)
+                ChunksRepo(self.conn).set_read_day(item_id, local_day(now))
 
     def set_progress(self, item_id: str, progress: float, *, now: datetime) -> None:
         progress = min(1.0, max(0.0, progress))

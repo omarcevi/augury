@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from augury.core.clock import from_iso, to_iso
 
-RunKind = Literal["scout", "discovery", "summarize", "ask"]
+RunKind = Literal["scout", "discovery", "summarize", "ask", "embed"]
 RunStatus = Literal["running", "ok", "partial", "failed", "interrupted"]
 
 

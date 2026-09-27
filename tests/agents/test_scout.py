@@ -287,3 +287,69 @@ async def test_any_export_failure_is_reported_not_fatal(paths, tmp_path, monkeyp
     last = RunsRepo(d.conn).last("scout")
     assert last is not None and last.status == "ok"
     assert last.error == "export: OperationalError: database is locked"
+
+
+async def test_the_scout_indexes_every_item_after_enrichment(paths):
+    from augury.core.db.chunks_repo import ChunksRepo
+    from augury.llm.embedder import HashEmbedder
+
+    d = deps(paths, OK_ADAPTERS)
+    d.embedder = HashEmbedder(16)
+    report = await run_scout(d)
+    assert report.ingest is not None
+    assert (report.ingest.archived, report.ingest.embedded) == (4, 4)
+    assert ChunksRepo(d.conn).count("archive") == 4
+
+
+async def test_an_embedder_failure_never_fails_the_scout(paths):
+    from augury.core.db.chunks_repo import ChunksRepo
+    from tests.rag.helpers import BrokenEmbedder
+
+    d = deps(paths, OK_ADAPTERS)
+    d.embedder = BrokenEmbedder(16)
+    report = await run_scout(d)
+    assert report.status == "ok" and report.ingest is not None
+    assert report.ingest.error == "RuntimeError: provider down"
+    assert ChunksRepo(d.conn).count("archive") == 4  # keyword-indexed all the same
+    assert "ingest: RuntimeError: provider down" in (RunsRepo(d.conn).last("scout").error or "")  # type: ignore[union-attr]
+
+
+async def test_an_ingest_crash_is_reported_and_triage_still_runs(paths, monkeypatch):
+    order: list[str] = []
+
+    async def boom(*args, **kwargs):
+        order.append("ingest")
+        raise RuntimeError("index bug")
+
+    real_triage = scout.triage_new_items
+
+    async def triage(*args, **kwargs):
+        order.append("triage")
+        return await real_triage(*args, **kwargs)
+
+    monkeypatch.setattr(scout, "ingest_archive", boom)
+    monkeypatch.setattr(scout, "triage_new_items", triage)
+    report = await run_scout(deps(paths, OK_ADAPTERS))
+    assert order == ["ingest", "triage"]  # spec §5.2: Enrich → Ingest → Triage
+    assert report.status == "ok" and report.ingest is not None
+    assert report.ingest.error == "RuntimeError: index bug"
+
+
+async def test_reading_ahead_stores_the_content_passages(paths):
+    from augury.core.db.chunks_repo import ChunksRepo
+    from augury.llm.embedder import HashEmbedder
+
+    urls = ["hf-papers/p1", "hf-papers/p2", "hf-blog/b1", "hf-community/c1"]
+    d = deps(paths, OK_ADAPTERS)
+    d.http = CountingHttp({f"https://x.com/{u}": GENERIC for u in urls})
+    d.config = Config(scout=ScoutConfig(enrich_max_per_run=0, prefetch_top_n=2))
+    d.resolver = fake_resolver(ScriptedLlm(replies=[echo_triage, summary_reply(), summary_reply()]))
+    d.embedder = HashEmbedder(16)
+    report = await run_scout(d)
+    assert report.prefetch is not None and report.prefetch.passages >= 2
+    content = ChunksRepo(d.conn).count("content")
+    assert content == report.prefetch.passages
+    embedded = d.conn.execute(
+        "SELECT count(*) FROM chunks WHERE collection = 'content' AND embed_model IS NOT NULL"
+    )
+    assert embedded.fetchone()[0] == content

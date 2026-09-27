@@ -166,10 +166,21 @@ def format_report(report: ScoutReport) -> str:
             lines.append(f"  ✓ {source_id:<16} {s.fetched} fetched · {s.new} new{extra}")
     if report.enrich_error:
         lines.append(f"  ! {'enrichment':<16} {safe(report.enrich_error)}")
+    lines.extend(_ingest_lines(report))
     lines.extend(_triage_lines(report))
     lines.extend(_prefetch_lines(report))
     lines.extend(_export_lines(report))
     return "\n".join(lines)
+
+
+def _ingest_lines(report: ScoutReport) -> list[str]:
+    i = report.ingest
+    if i is None or not (i.embedded or i.stopped or i.error or i.needs_reindex):
+        return []  # keyword-only by choice (no key, no embedder): the M1 report, unchanged
+    problem = i.stopped or i.error or (i.keyword_only if i.needs_reindex else None)
+    mark = "⚠" if problem else "✓"
+    line = f"  {mark} {'index':<16} {i.archived} items · {i.embedded} embedded"
+    return [line + (f" · {safe(problem)}" if problem else "")]
 
 
 def _triage_lines(report: ScoutReport) -> list[str]:
@@ -309,7 +320,9 @@ def schedule_status() -> None:
 
 
 from augury.cli.dev import dev_group  # noqa: E402
+from augury.cli.rag import reindex as reindex_command  # noqa: E402
 from augury.cli.sources import sources_group  # noqa: E402
 
 main.add_command(sources_group)
 main.add_command(dev_group)
+main.add_command(reindex_command)

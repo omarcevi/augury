@@ -34,3 +34,8 @@ def local_day_bounds(day: date) -> tuple[datetime, datetime]:
     start = datetime.combine(day, time.min).astimezone()
     end = datetime.combine(day + timedelta(days=1), time.min).astimezone()
     return start, end
+
+
+def day_number(day: date) -> int:
+    """yyyymmdd as an integer, the day format of the vector index (spec §6.4)."""
+    return day.year * 10_000 + day.month * 100 + day.day
