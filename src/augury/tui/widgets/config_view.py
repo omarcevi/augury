@@ -303,6 +303,7 @@ _APPLIES: dict[str, Applies] = {
     "export": "scout",
     "ranking": "scout",
     "interests": "scout",  # the next scout's triage reads app.interests
+    "search": "now",  # each discovery run reads app.config
 }
 
 

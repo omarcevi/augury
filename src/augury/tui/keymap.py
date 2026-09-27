@@ -78,6 +78,9 @@ KEYMAP: dict[str, tuple[KeyHint, ...]] = {
 # z:zen off at 90 columns). T only matters after a TL;DR failed, when the reader's own message
 # names it; a collapsed TL;DR box names h itself.
 HELP_ONLY: dict[str, tuple[KeyHint, ...]] = {
+    # M3: R starts discovery again for the highlighted (e.g. broken) source; in the discovery
+    # panel space checks a candidate and enter adds the checked ones.
+    "SOURCES": (KeyHint("R", "re-discover"), KeyHint("space", "check candidate")),
     "READ": (KeyHint("h", "hide/show TL;DR"), KeyHint("T", "retry TL;DR")),
     "CONFIG": (
         KeyHint("space", "flip on/off (or edit)"),

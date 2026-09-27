@@ -42,6 +42,6 @@ class SourceDetail(Static):
             lines.append(f"test fetch: {len(samples)} items")
             lines.extend(f"  · {title}" for title in samples[:3])
         lines.append("")
-        lines.append("+ add · t test fetch · e enable/disable · d remove")
+        lines.append("+ add · t test fetch · e enable/disable · d remove · R re-discover")
         self.text_content = "\n".join(lines)
         self.update(text(self.text_content))

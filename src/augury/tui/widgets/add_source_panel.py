@@ -14,7 +14,9 @@ class AddSourcePanel(Vertical):
         self.candidates: list[FeedInfo] = []
 
     def compose(self) -> ComposeResult:
-        yield Input(placeholder="blog page or feed URL, then Enter", id="add-url")
+        yield Input(
+            placeholder="a blog's URL, a feed URL or a publication's name, then Enter", id="add-url"
+        )
         yield Static(id="add-status")
         yield OptionList(id="add-candidates")
 
@@ -34,9 +36,7 @@ class AddSourcePanel(Vertical):
         self.candidates = result.candidates
         if not result.candidates:
             tried = "\n".join(f"  tried {a.url}: {a.outcome}" for a in result.attempts)
-            self.show_status(
-                "No usable feed found. Finding sources by name arrives in M3.\n" + tried
-            )
+            self.show_status("No usable feed found; asking the discovery agent.\n" + tried)
             return
         self.show_status("Enter adds the highlighted feed · Esc cancels")
         for i, c in enumerate(result.candidates):

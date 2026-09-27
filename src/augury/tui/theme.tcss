@@ -56,6 +56,10 @@ Screen.zen #reader { width: 100%; }
 #sources-side { width: 45%; border: round $primary; padding: 0 1; }
 #add-url { margin-bottom: 1; }
 #add-candidates { height: 1fr; }
+/* M3: the discovery panel (progress lines, then the candidate checklist) */
+#discovery-status { margin-bottom: 1; }
+#discovery-progress { height: auto; max-height: 12; color: $text-muted; }
+#discovery-candidates { height: 1fr; }
 ConfirmModal { align: center middle; }
 #confirm-body { width: 60; height: auto; border: round $warning; background: $surface; padding: 1 2; }
 #config-view { height: 1fr; border: round $primary; padding: 0 1; }
